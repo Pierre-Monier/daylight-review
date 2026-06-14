@@ -1,0 +1,10 @@
+# ABOUTME: CI template for automatic reviewer assignment using Daylight
+# ABOUTME: runs on merge request events and requires DAYLIGHT_GITLAB_TOKEN env variable
+daylight-assign:
+  image: ghcr.io/daylight-review/daylight:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    DAYLIGHT_GITLAB_TOKEN: $DAYLIGHT_GITLAB_TOKEN
+  script:
+    - daylight assign
