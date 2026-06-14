@@ -1,7 +1,26 @@
-# ABOUTME: CI template for automatic reviewer assignment using Daylight
-# ABOUTME: runs on merge request events and requires DAYLIGHT_GITLAB_TOKEN env variable
+# ABOUTME: CI template for building and pushing the Daylight Docker image and running reviewer assignment
+# ABOUTME: image is pushed to Docker Hub on every push to main; reviewer assignment runs on MR events
+
+stages:
+  - publish
+  - assign
+
+publish-image:
+  stage: publish
+  image: docker:27
+  services:
+    - docker:27-dind
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - echo "$DOCKER_HUB_TOKEN" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
+    - docker build -t pmonierdev/daylight:latest -t pmonierdev/daylight:$CI_COMMIT_SHORT_SHA .
+    - docker push pmonierdev/daylight:latest
+    - docker push pmonierdev/daylight:$CI_COMMIT_SHORT_SHA
+
 daylight-assign:
-  image: ghcr.io/daylight-review/daylight:latest
+  stage: assign
+  image: pmonierdev/daylight:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
