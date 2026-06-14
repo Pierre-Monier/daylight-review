@@ -56,13 +56,30 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		return nil
 	}
 
+	sectionCount := make(map[string]int, len(sections))
+	for _, s := range sections {
+		sectionCount[s.Name] = s.RequiredCount
+	}
+
 	selected := make(map[string]bool)
-	for _, candidates := range teamCandidates {
-		reviewer, err := strategy.Select(candidates, author)
-		if err != nil {
-			continue
+	for team, candidates := range teamCandidates {
+		count := sectionCount[team]
+		if count == 0 {
+			count = 1
 		}
-		selected[reviewer] = true
+		for i := 0; i < count; i++ {
+			remaining := make([]string, 0, len(candidates))
+			for _, c := range candidates {
+				if !selected[c] {
+					remaining = append(remaining, c)
+				}
+			}
+			reviewer, err := strategy.Select(remaining, author)
+			if err != nil {
+				break
+			}
+			selected[reviewer] = true
+		}
 	}
 	if len(selected) == 0 {
 		return nil

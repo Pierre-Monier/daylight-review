@@ -15,6 +15,7 @@ func TestParse_PatternA_OwnersOnRuleLine(t *testing.T) {
 
 	assert.Len(t, sections, 1)
 	assert.Equal(t, "Backend", sections[0].Name)
+	assert.Equal(t, 1, sections[0].RequiredCount)
 	assert.Empty(t, sections[0].DefaultOwners)
 	assert.Len(t, sections[0].Rules, 2)
 	assert.Equal(t, "/src/", sections[0].Rules[0].Pattern)
@@ -42,7 +43,18 @@ func TestParse_MultipleSections(t *testing.T) {
 
 	assert.Len(t, sections, 2)
 	assert.Equal(t, "Frontend", sections[0].Name)
+	assert.Equal(t, 1, sections[0].RequiredCount)
 	assert.Equal(t, "Backend", sections[1].Name)
+	assert.Equal(t, 2, sections[1].RequiredCount)
+}
+
+func TestParse_RequiredCount_DefaultsToOne(t *testing.T) {
+	content := "[Backend]\n/src/ @alice\n"
+
+	sections := Parse(content)
+
+	assert.Len(t, sections, 1)
+	assert.Equal(t, 1, sections[0].RequiredCount)
 }
 
 func TestParse_CommentsAndBlankLinesIgnored(t *testing.T) {

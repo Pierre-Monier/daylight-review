@@ -128,6 +128,37 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	assert.Contains(t, postedNote, "daylight:processed sha=sha1")
 }
 
+func TestRun_MultiReviewer_AssignsN(t *testing.T) {
+	var assignedReviewers []string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return nil, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "dave", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][2]\n/src/ @alice @bob @carol\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			assignedReviewers = u
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
+
+	require.NoError(t, err)
+	assert.Len(t, assignedReviewers, 2)
+	assert.Equal(t, 2, len(assignedReviewers))
+	// both must be distinct and from the candidate pool
+	assert.NotEqual(t, assignedReviewers[0], assignedReviewers[1])
+	for _, r := range assignedReviewers {
+		assert.Contains(t, []string{"alice", "bob", "carol"}, r)
+	}
+}
+
 func TestRun_AuthorExcludedFromSelection(t *testing.T) {
 	var assignedReviewers []string
 	cl := &mockClient{

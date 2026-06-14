@@ -2,10 +2,14 @@
 // ABOUTME: strips @ prefix from usernames; rule owners fall back to section defaults if absent
 package ownership
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 type Section struct {
 	Name          string
+	RequiredCount int
 	DefaultOwners []string
 	Rules         []Rule
 }
@@ -41,11 +45,17 @@ func parseSection(line string) Section {
 	end := strings.Index(line, "]")
 	name := line[1:end]
 	rest := line[end+1:]
+	count := 1
 	if strings.HasPrefix(rest, "[") {
+		inner := rest[1:strings.Index(rest, "]")]
+		if n, err := strconv.Atoi(inner); err == nil && n > 0 {
+			count = n
+		}
 		rest = rest[strings.Index(rest, "]")+1:]
 	}
 	return Section{
 		Name:          name,
+		RequiredCount: count,
 		DefaultOwners: parseOwners(strings.TrimSpace(rest)),
 	}
 }
