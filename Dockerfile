@@ -1,3 +1,5 @@
+# ABOUTME: multi-stage build for the daylight CLI binary
+# ABOUTME: build stage compiles the Go binary; final stage is minimal alpine with ca-certificates
 FROM golang:1.26-alpine AS build
 WORKDIR /app
 COPY go.mod go.sum ./
