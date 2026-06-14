@@ -26,6 +26,8 @@ type GitLabClient interface {
 	PostInternalNote(ctx context.Context, projectID, mrIID, body string) error
 }
 
+var _ GitLabClient = (*Client)(nil)
+
 type Client struct {
 	baseURL    string
 	token      string
