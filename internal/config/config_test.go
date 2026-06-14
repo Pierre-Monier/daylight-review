@@ -11,12 +11,23 @@ import (
 )
 
 func withEnv(vars map[string]string) func() {
+	orig := make(map[string]*string, len(vars))
 	for k, v := range vars {
+		if prev, ok := os.LookupEnv(k); ok {
+			prev := prev
+			orig[k] = &prev
+		} else {
+			orig[k] = nil
+		}
 		os.Setenv(k, v)
 	}
 	return func() {
-		for k := range vars {
-			os.Unsetenv(k)
+		for k, v := range orig {
+			if v == nil {
+				os.Unsetenv(k)
+			} else {
+				os.Setenv(k, *v)
+			}
 		}
 	}
 }
@@ -46,14 +57,24 @@ func TestLoad_AllRequired(t *testing.T) {
 }
 
 func TestLoad_MissingRequired(t *testing.T) {
-	os.Unsetenv("CI_PROJECT_ID")
-	os.Unsetenv("CI_MERGE_REQUEST_IID")
-	os.Unsetenv("CI_COMMIT_SHA")
-	os.Unsetenv("DAYLIGHT_GITLAB_TOKEN")
+	required := []string{
+		"CI_PROJECT_ID",
+		"CI_MERGE_REQUEST_IID",
+		"CI_COMMIT_SHA",
+		"DAYLIGHT_GITLAB_TOKEN",
+	}
+	for _, missing := range required {
+		t.Run("missing_"+missing, func(t *testing.T) {
+			vars := requiredVars()
+			delete(vars, missing)
+			defer withEnv(vars)()
+			os.Unsetenv(missing)
 
-	_, err := Load()
+			_, err := Load()
 
-	require.Error(t, err)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestLoad_IsDraftTrue(t *testing.T) {
@@ -65,6 +86,17 @@ func TestLoad_IsDraftTrue(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, cfg.IsDraft)
+}
+
+func TestLoad_IsDraftFalse(t *testing.T) {
+	vars := requiredVars()
+	vars["CI_MERGE_REQUEST_DRAFT"] = "false"
+	defer withEnv(vars)()
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.False(t, cfg.IsDraft)
 }
 
 func TestLoad_URLFallbackToGitLabCom(t *testing.T) {
