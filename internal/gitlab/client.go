@@ -43,6 +43,8 @@ func New(baseURL, token string) *Client {
 }
 
 func (c *Client) MRNotes(ctx context.Context, projectID, mrIID string) ([]Note, error) {
+	// GitLab returns notes newest-first; 100 per page is the max. Pagination is not
+	// implemented — on MRs with >100 notes the idempotency note could fall off page 1.
 	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/notes?per_page=100", c.baseURL, projectID, mrIID)
 	var notes []Note
 	if err := c.get(ctx, url, &notes); err != nil {
