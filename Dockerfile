@@ -10,4 +10,4 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o daylight ./cmd/daylight
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
 COPY --from=build /app/daylight /usr/local/bin/daylight
-ENTRYPOINT ["daylight"]
+CMD ["daylight"]
