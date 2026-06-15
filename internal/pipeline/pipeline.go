@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 
 func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strategy selection.SelectionStrategy) error {
 	if cfg.IsDraft {
+		log.Println("MR is a draft, skipping")
 		return nil
 	}
 
@@ -28,6 +30,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	for _, note := range notes {
 		sha, _, ok := ParseNote(note.Body)
 		if ok && sha == cfg.CommitSHA {
+			log.Println("already processed this commit, skipping")
 			return nil
 		}
 	}
@@ -36,11 +39,13 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	if err != nil {
 		return fmt.Errorf("fetch MR changes: %w", err)
 	}
+	log.Printf("author: %s, changed files: %d", author, len(files))
 	hash := filesHash(files)
 
 	for _, note := range notes {
 		_, fh, ok := ParseNote(note.Body)
 		if ok && fh == hash {
+			log.Println("already processed this file set, skipping")
 			return nil
 		}
 	}
@@ -53,6 +58,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	sections := ownership.Parse(content)
 	teamCandidates := ownership.Resolve(files, sections)
 	if len(teamCandidates) == 0 {
+		log.Println("no owners found for changed files, skipping")
 		return nil
 	}
 
@@ -67,6 +73,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		if count == 0 {
 			count = 1
 		}
+		log.Printf("team %q: %d candidate(s), need %d reviewer(s)", team, len(candidates), count)
 		for i := 0; i < count; i++ {
 			remaining := make([]string, 0, len(candidates))
 			for _, c := range candidates {
@@ -76,12 +83,14 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 			}
 			reviewer, err := strategy.Select(remaining, author)
 			if err != nil {
+				log.Printf("team %q: no eligible reviewer (author excluded or pool exhausted)", team)
 				break
 			}
 			selected[reviewer] = true
 		}
 	}
 	if len(selected) == 0 {
+		log.Println("no reviewers could be selected, skipping")
 		return nil
 	}
 
@@ -89,6 +98,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	for r := range selected {
 		reviewers = append(reviewers, r)
 	}
+	log.Printf("assigning reviewers: %s", strings.Join(reviewers, ", "))
 
 	if err := gl.SetReviewers(ctx, cfg.ProjectID, cfg.MRIID, reviewers); err != nil {
 		return fmt.Errorf("set reviewers: %w", err)
@@ -98,6 +108,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		return fmt.Errorf("post note: %w", err)
 	}
 
+	log.Println("done")
 	return nil
 }
 
