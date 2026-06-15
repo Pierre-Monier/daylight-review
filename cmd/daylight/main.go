@@ -102,10 +102,46 @@ func runCheck(args []string) {
 	}
 
 	sections := ownership.Parse(string(content))
+
+	fmt.Println("=== CODEOWNERS ===")
+	if len(sections) == 0 {
+		fmt.Println("  (no sections found)")
+	}
+	for _, s := range sections {
+		fmt.Printf("[%s] — need %d reviewer(s)\n", s.Name, s.RequiredCount)
+		if len(s.DefaultOwners) > 0 {
+			fmt.Printf("  default owners: %s\n", strings.Join(s.DefaultOwners, ", "))
+		}
+		for _, r := range s.Rules {
+			fmt.Printf("  %-30s → %s\n", r.Pattern, strings.Join(r.Owners, ", "))
+		}
+	}
+
+	fmt.Println()
+	fmt.Println("=== FILE MATCHING ===")
+	fmt.Printf("author: %q (excluded from selection)\n", *author)
+	fmt.Printf("changed files (%d):\n", len(changedFiles))
+	for _, f := range changedFiles {
+		matched := false
+		for _, s := range sections {
+			for _, r := range s.Rules {
+				if strings.HasPrefix(f, r.Pattern) {
+					fmt.Printf("  %-40s → [%s] rule %s\n", f, s.Name, r.Pattern)
+					matched = true
+				}
+			}
+		}
+		if !matched {
+			fmt.Printf("  %-40s → (no match)\n", f)
+		}
+	}
+
 	teamCandidates := ownership.Resolve(changedFiles, sections)
 
+	fmt.Println()
+	fmt.Println("=== SELECTION ===")
 	if len(teamCandidates) == 0 {
-		fmt.Println("no owners found for the given files")
+		fmt.Println("no owners found for the given files — nobody would be assigned")
 		return
 	}
 
@@ -120,7 +156,7 @@ func runCheck(args []string) {
 		if count == 0 {
 			count = 1
 		}
-		fmt.Printf("team %q — candidates: %s, need %d\n", team, strings.Join(candidates, ", "), count)
+		fmt.Printf("[%s] — pool: %s, need: %d\n", team, strings.Join(candidates, ", "), count)
 		for i := 0; i < count; i++ {
 			remaining := make([]string, 0, len(candidates))
 			for _, c := range candidates {
@@ -128,13 +164,36 @@ func runCheck(args []string) {
 					remaining = append(remaining, c)
 				}
 			}
+			if *author != "" {
+				filtered := make([]string, 0, len(remaining))
+				for _, c := range remaining {
+					if c != *author {
+						filtered = append(filtered, c)
+					}
+				}
+				if len(filtered) < len(remaining) {
+					fmt.Printf("  round %d: %s excluded (author), remaining pool: %s\n", i+1, *author, strings.Join(filtered, ", "))
+				}
+			}
 			reviewer, err := selection.RandomStrategy{}.Select(remaining, *author)
 			if err != nil {
-				fmt.Printf("  → no eligible reviewer (pool exhausted or all excluded)\n")
+				fmt.Printf("  round %d: pool exhausted, no reviewer assigned\n", i+1)
 				break
 			}
 			selected[reviewer] = true
-			fmt.Printf("  → selected: %s\n", reviewer)
+			fmt.Printf("  round %d: selected %s\n", i+1, reviewer)
 		}
 	}
+
+	fmt.Println()
+	fmt.Println("=== RESULT ===")
+	if len(selected) == 0 {
+		fmt.Println("no reviewers would be assigned")
+		return
+	}
+	reviewers := make([]string, 0, len(selected))
+	for r := range selected {
+		reviewers = append(reviewers, r)
+	}
+	fmt.Printf("would assign: %s\n", strings.Join(reviewers, ", "))
 }
