@@ -4,13 +4,19 @@ package ownership
 
 import "strings"
 
+// NormalizePath ensures a file path starts with / to match CODEOWNERS rule patterns.
+// GitLab CI omits the leading slash from changed file paths.
+func NormalizePath(path string) string {
+	return "/" + strings.TrimLeft(path, "/")
+}
+
 // Resolve returns a map of section name to candidate usernames for the given changed files.
 // Files with no matching rule are ignored. Returns an empty map if nothing has an owner.
 func Resolve(changedFiles []string, sections []Section) map[string][]string {
 	seen := make(map[string]map[string]bool)
 
 	for _, file := range changedFiles {
-		normalized := "/" + strings.TrimLeft(file, "/")
+		normalized := NormalizePath(file)
 		for _, section := range sections {
 			for _, rule := range section.Rules {
 				if strings.HasPrefix(normalized, rule.Pattern) {

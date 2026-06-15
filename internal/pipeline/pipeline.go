@@ -56,29 +56,52 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 
 	sections := ownership.Parse(content)
+	reviewers := ResolveAndSelect(files, sections, author, strategy, log.Printf)
+	if len(reviewers) == 0 {
+		return nil
+	}
 
-	log.Printf("=== FILE MATCHING ===")
-	log.Printf("author: %q (excluded from selection)", author)
-	log.Printf("changed files (%d):", len(files))
+	log.Printf("=== RESULT ===")
+	log.Printf("assigning reviewers: %s", strings.Join(reviewers, ", "))
+
+	if err := gl.SetReviewers(ctx, cfg.ProjectID, cfg.MRIID, reviewers); err != nil {
+		return fmt.Errorf("set reviewers: %w", err)
+	}
+
+	if err := gl.PostInternalNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, hash)); err != nil {
+		return fmt.Errorf("post note: %w", err)
+	}
+
+	log.Println("done")
+	return nil
+}
+
+// ResolveAndSelect resolves owners for the changed files, selects reviewers with detailed
+// per-step output via printf, and returns the selected usernames.
+// Returns nil if no owners are found or the reviewer pool is exhausted.
+func ResolveAndSelect(files []string, sections []ownership.Section, author string, strategy selection.SelectionStrategy, printf func(string, ...any)) []string {
+	printf("=== FILE MATCHING ===")
+	printf("author: %q (excluded from selection)", author)
+	printf("changed files (%d):", len(files))
 	for _, f := range files {
-		normalized := "/" + strings.TrimLeft(f, "/")
+		normalized := ownership.NormalizePath(f)
 		matched := false
 		for _, s := range sections {
 			for _, r := range s.Rules {
 				if strings.HasPrefix(normalized, r.Pattern) {
-					log.Printf("  %-40s → [%s] rule %s", f, s.Name, r.Pattern)
+					printf("  %-40s → [%s] rule %s", f, s.Name, r.Pattern)
 					matched = true
 				}
 			}
 		}
 		if !matched {
-			log.Printf("  %-40s → (no match)", f)
+			printf("  %-40s → (no match)", f)
 		}
 	}
 
 	teamCandidates := ownership.Resolve(files, sections)
 	if len(teamCandidates) == 0 {
-		log.Println("no owners found for changed files, skipping")
+		printf("no owners found for changed files")
 		return nil
 	}
 
@@ -87,14 +110,14 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		sectionCount[s.Name] = s.RequiredCount
 	}
 
-	log.Printf("=== SELECTION ===")
+	printf("=== SELECTION ===")
 	selected := make(map[string]bool)
 	for team, candidates := range teamCandidates {
 		count := sectionCount[team]
 		if count == 0 {
 			count = 1
 		}
-		log.Printf("[%s] — pool: %s, need: %d", team, strings.Join(candidates, ", "), count)
+		printf("[%s] — pool: %s, need: %d", team, strings.Join(candidates, ", "), count)
 		for i := 0; i < count; i++ {
 			remaining := make([]string, 0, len(candidates))
 			for _, c := range candidates {
@@ -109,39 +132,26 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 				}
 			}
 			if len(filtered) < len(remaining) {
-				log.Printf("  round %d: %s excluded (author), remaining pool: %s", i+1, author, strings.Join(filtered, ", "))
+				printf("  round %d: %s excluded (author), remaining pool: %s", i+1, author, strings.Join(filtered, ", "))
 			}
 			reviewer, err := strategy.Select(remaining, author)
 			if err != nil {
-				log.Printf("  round %d: pool exhausted, no reviewer assigned", i+1)
+				printf("  round %d: pool exhausted, no reviewer assigned", i+1)
 				break
 			}
 			selected[reviewer] = true
-			log.Printf("  round %d: selected %s", i+1, reviewer)
+			printf("  round %d: selected %s", i+1, reviewer)
 		}
 	}
+
 	if len(selected) == 0 {
-		log.Println("no reviewers could be selected, skipping")
 		return nil
 	}
-
 	reviewers := make([]string, 0, len(selected))
 	for r := range selected {
 		reviewers = append(reviewers, r)
 	}
-	log.Printf("=== RESULT ===")
-	log.Printf("assigning reviewers: %s", strings.Join(reviewers, ", "))
-
-	if err := gl.SetReviewers(ctx, cfg.ProjectID, cfg.MRIID, reviewers); err != nil {
-		return fmt.Errorf("set reviewers: %w", err)
-	}
-
-	if err := gl.PostInternalNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, hash)); err != nil {
-		return fmt.Errorf("post note: %w", err)
-	}
-
-	log.Println("done")
-	return nil
+	return reviewers
 }
 
 func filesHash(files []string) string {

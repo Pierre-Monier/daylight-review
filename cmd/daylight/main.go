@@ -16,6 +16,7 @@ import (
 	"github.com/daylight-review/daylight/internal/selection"
 )
 
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "check" {
 		runCheck(os.Args[2:])
@@ -103,82 +104,14 @@ func runCheck(args []string) {
 
 	sections := ownership.Parse(string(content))
 
-	fmt.Println("=== FILE MATCHING ===")
-	fmt.Printf("author: %q (excluded from selection)\n", *author)
-	fmt.Printf("changed files (%d):\n", len(changedFiles))
-	for _, f := range changedFiles {
-		matched := false
-		for _, s := range sections {
-			for _, r := range s.Rules {
-				if strings.HasPrefix(f, r.Pattern) {
-					fmt.Printf("  %-40s → [%s] rule %s\n", f, s.Name, r.Pattern)
-					matched = true
-				}
-			}
-		}
-		if !matched {
-			fmt.Printf("  %-40s → (no match)\n", f)
-		}
-	}
-
-	teamCandidates := ownership.Resolve(changedFiles, sections)
-
-	fmt.Println()
-	fmt.Println("=== SELECTION ===")
-	if len(teamCandidates) == 0 {
-		fmt.Println("no owners found for the given files — nobody would be assigned")
-		return
-	}
-
-	sectionCount := make(map[string]int, len(sections))
-	for _, s := range sections {
-		sectionCount[s.Name] = s.RequiredCount
-	}
-
-	selected := make(map[string]bool)
-	for team, candidates := range teamCandidates {
-		count := sectionCount[team]
-		if count == 0 {
-			count = 1
-		}
-		fmt.Printf("[%s] — pool: %s, need: %d\n", team, strings.Join(candidates, ", "), count)
-		for i := 0; i < count; i++ {
-			remaining := make([]string, 0, len(candidates))
-			for _, c := range candidates {
-				if !selected[c] {
-					remaining = append(remaining, c)
-				}
-			}
-			if *author != "" {
-				filtered := make([]string, 0, len(remaining))
-				for _, c := range remaining {
-					if c != *author {
-						filtered = append(filtered, c)
-					}
-				}
-				if len(filtered) < len(remaining) {
-					fmt.Printf("  round %d: %s excluded (author), remaining pool: %s\n", i+1, *author, strings.Join(filtered, ", "))
-				}
-			}
-			reviewer, err := selection.RandomStrategy{}.Select(remaining, *author)
-			if err != nil {
-				fmt.Printf("  round %d: pool exhausted, no reviewer assigned\n", i+1)
-				break
-			}
-			selected[reviewer] = true
-			fmt.Printf("  round %d: selected %s\n", i+1, reviewer)
-		}
-	}
+	printf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
+	reviewers := pipeline.ResolveAndSelect(changedFiles, sections, *author, selection.RandomStrategy{}, printf)
 
 	fmt.Println()
 	fmt.Println("=== RESULT ===")
-	if len(selected) == 0 {
+	if len(reviewers) == 0 {
 		fmt.Println("no reviewers would be assigned")
 		return
-	}
-	reviewers := make([]string, 0, len(selected))
-	for r := range selected {
-		reviewers = append(reviewers, r)
 	}
 	fmt.Printf("would assign: %s\n", strings.Join(reviewers, ", "))
 }
