@@ -24,4 +24,4 @@ daylight-assign:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - daylight assign
+    - daylight

@@ -15,23 +15,21 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "assign" {
-		fmt.Fprintln(os.Stderr, "usage: daylight assign [flags]")
+	fs := flag.NewFlagSet("daylight", flag.ExitOnError)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: daylight [flags]")
 		fmt.Fprintln(os.Stderr, "  -token       GitLab API token (overrides DAYLIGHT_GITLAB_TOKEN)")
 		fmt.Fprintln(os.Stderr, "  -project-id  GitLab project ID (overrides CI_PROJECT_ID)")
 		fmt.Fprintln(os.Stderr, "  -mr-iid      Merge request IID (overrides CI_MERGE_REQUEST_IID)")
 		fmt.Fprintln(os.Stderr, "  -sha         Commit SHA (overrides CI_COMMIT_SHA)")
 		fmt.Fprintln(os.Stderr, "  -url         GitLab URL (overrides DAYLIGHT_GITLAB_URL / CI_SERVER_URL)")
-		os.Exit(1)
 	}
-
-	fs := flag.NewFlagSet("assign", flag.ExitOnError)
 	token := fs.String("token", "", "")
 	projectID := fs.String("project-id", "", "")
 	mrIID := fs.String("mr-iid", "", "")
 	sha := fs.String("sha", "", "")
 	url := fs.String("url", "", "")
-	_ = fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[1:])
 
 	setIfProvided := func(envKey, val string) {
 		if val != "" {

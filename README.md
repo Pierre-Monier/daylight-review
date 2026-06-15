@@ -46,7 +46,7 @@ daylight-assign:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - daylight assign
+    - daylight
 ```
 
 That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID`, `CI_COMMIT_SHA`, `CI_SERVER_URL`) directly from the GitLab CI environment.
@@ -78,7 +78,7 @@ daylight-assign:
   variables:
     DAYLIGHT_GITLAB_URL: https://gitlab.yourcompany.com
   script:
-    - daylight assign
+    - daylight
 ```
 
 ## Full pipeline example
@@ -109,5 +109,5 @@ daylight-assign:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - daylight assign
+    - daylight
 ```
