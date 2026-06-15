@@ -103,21 +103,6 @@ func runCheck(args []string) {
 
 	sections := ownership.Parse(string(content))
 
-	fmt.Println("=== CODEOWNERS ===")
-	if len(sections) == 0 {
-		fmt.Println("  (no sections found)")
-	}
-	for _, s := range sections {
-		fmt.Printf("[%s] — need %d reviewer(s)\n", s.Name, s.RequiredCount)
-		if len(s.DefaultOwners) > 0 {
-			fmt.Printf("  default owners: %s\n", strings.Join(s.DefaultOwners, ", "))
-		}
-		for _, r := range s.Rules {
-			fmt.Printf("  %-30s → %s\n", r.Pattern, strings.Join(r.Owners, ", "))
-		}
-	}
-
-	fmt.Println()
 	fmt.Println("=== FILE MATCHING ===")
 	fmt.Printf("author: %q (excluded from selection)\n", *author)
 	fmt.Printf("changed files (%d):\n", len(changedFiles))
