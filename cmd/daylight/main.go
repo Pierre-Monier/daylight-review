@@ -17,12 +17,17 @@ import (
 func main() {
 	fs := flag.NewFlagSet("daylight", flag.ExitOnError)
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: daylight [flags]")
-		fmt.Fprintln(os.Stderr, "  -token       GitLab API token (overrides DAYLIGHT_GITLAB_TOKEN)")
-		fmt.Fprintln(os.Stderr, "  -project-id  GitLab project ID (overrides CI_PROJECT_ID)")
-		fmt.Fprintln(os.Stderr, "  -mr-iid      Merge request IID (overrides CI_MERGE_REQUEST_IID)")
-		fmt.Fprintln(os.Stderr, "  -sha         Commit SHA (overrides CI_COMMIT_SHA)")
-		fmt.Fprintln(os.Stderr, "  -url         GitLab URL (overrides DAYLIGHT_GITLAB_URL / CI_SERVER_URL)")
+		fmt.Fprintln(os.Stderr, "Assigns reviewers to a GitLab MR based on CODEOWNERS.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Configuration via environment variables (set automatically in GitLab CI):")
+		fmt.Fprintln(os.Stderr, "  DAYLIGHT_GITLAB_TOKEN   GitLab API token with api scope (required)")
+		fmt.Fprintln(os.Stderr, "  CI_PROJECT_ID           GitLab project ID (required)")
+		fmt.Fprintln(os.Stderr, "  CI_MERGE_REQUEST_IID    Merge request IID (required)")
+		fmt.Fprintln(os.Stderr, "  CI_COMMIT_SHA           Commit SHA (required)")
+		fmt.Fprintln(os.Stderr, "  DAYLIGHT_GITLAB_URL     GitLab instance URL (optional, defaults to gitlab.com)")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Flags override the corresponding env var (useful for local testing):")
+		fmt.Fprintln(os.Stderr, "  -token, -project-id, -mr-iid, -sha, -url")
 	}
 	token := fs.String("token", "", "")
 	projectID := fs.String("project-id", "", "")
