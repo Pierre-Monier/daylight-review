@@ -56,6 +56,26 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 
 	sections := ownership.Parse(content)
+
+	log.Printf("=== FILE MATCHING ===")
+	log.Printf("author: %q (excluded from selection)", author)
+	log.Printf("changed files (%d):", len(files))
+	for _, f := range files {
+		normalized := "/" + strings.TrimLeft(f, "/")
+		matched := false
+		for _, s := range sections {
+			for _, r := range s.Rules {
+				if strings.HasPrefix(normalized, r.Pattern) {
+					log.Printf("  %-40s → [%s] rule %s", f, s.Name, r.Pattern)
+					matched = true
+				}
+			}
+		}
+		if !matched {
+			log.Printf("  %-40s → (no match)", f)
+		}
+	}
+
 	teamCandidates := ownership.Resolve(files, sections)
 	if len(teamCandidates) == 0 {
 		log.Println("no owners found for changed files, skipping")
@@ -67,13 +87,14 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		sectionCount[s.Name] = s.RequiredCount
 	}
 
+	log.Printf("=== SELECTION ===")
 	selected := make(map[string]bool)
 	for team, candidates := range teamCandidates {
 		count := sectionCount[team]
 		if count == 0 {
 			count = 1
 		}
-		log.Printf("team %q: %d candidate(s), need %d reviewer(s)", team, len(candidates), count)
+		log.Printf("[%s] — pool: %s, need: %d", team, strings.Join(candidates, ", "), count)
 		for i := 0; i < count; i++ {
 			remaining := make([]string, 0, len(candidates))
 			for _, c := range candidates {
@@ -81,12 +102,22 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 					remaining = append(remaining, c)
 				}
 			}
+			filtered := make([]string, 0, len(remaining))
+			for _, c := range remaining {
+				if c != author {
+					filtered = append(filtered, c)
+				}
+			}
+			if len(filtered) < len(remaining) {
+				log.Printf("  round %d: %s excluded (author), remaining pool: %s", i+1, author, strings.Join(filtered, ", "))
+			}
 			reviewer, err := strategy.Select(remaining, author)
 			if err != nil {
-				log.Printf("team %q: no eligible reviewer (author excluded or pool exhausted)", team)
+				log.Printf("  round %d: pool exhausted, no reviewer assigned", i+1)
 				break
 			}
 			selected[reviewer] = true
+			log.Printf("  round %d: selected %s", i+1, reviewer)
 		}
 	}
 	if len(selected) == 0 {
@@ -98,6 +129,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	for r := range selected {
 		reviewers = append(reviewers, r)
 	}
+	log.Printf("=== RESULT ===")
 	log.Printf("assigning reviewers: %s", strings.Join(reviewers, ", "))
 
 	if err := gl.SetReviewers(ctx, cfg.ProjectID, cfg.MRIID, reviewers); err != nil {

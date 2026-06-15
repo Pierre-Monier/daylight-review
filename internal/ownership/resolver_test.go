@@ -53,6 +53,16 @@ func TestResolve_FileWithNoOwnerIgnored(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+func TestResolve_FileWithoutLeadingSlash(t *testing.T) {
+	sections := []Section{
+		{Name: "Backend", Rules: []Rule{{Pattern: "/src/", Owners: []string{"alice"}}}},
+	}
+
+	result := Resolve([]string{"src/main.go"}, sections)
+
+	assert.ElementsMatch(t, []string{"alice"}, result["Backend"])
+}
+
 func TestResolve_AllFilesUnowned_ReturnsEmptyMap(t *testing.T) {
 	result := Resolve([]string{"/docs/readme.md"}, []Section{})
 

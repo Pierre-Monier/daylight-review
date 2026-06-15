@@ -10,9 +10,10 @@ func Resolve(changedFiles []string, sections []Section) map[string][]string {
 	seen := make(map[string]map[string]bool)
 
 	for _, file := range changedFiles {
+		normalized := "/" + strings.TrimLeft(file, "/")
 		for _, section := range sections {
 			for _, rule := range section.Rules {
-				if strings.HasPrefix(file, rule.Pattern) {
+				if strings.HasPrefix(normalized, rule.Pattern) {
 					if seen[section.Name] == nil {
 						seen[section.Name] = make(map[string]bool)
 					}
