@@ -325,3 +325,37 @@ func TestReviewers_SortedDeduped(t *testing.T) {
 
 	assert.Equal(t, []string{"alice", "bob", "carol"}, Reviewers(assignments))
 }
+
+func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
+	var assigned []string
+	var postedNote string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go", "/web/app.js"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			assigned = u
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, b string) error {
+			postedNote = b
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice", "carol"}, assigned)
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
+	assert.Equal(t, []string{"carol"}, postedAssignments["Frontend"])
+}

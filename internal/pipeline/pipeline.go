@@ -28,6 +28,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 
 	var prevSHA string
 	var prevAssignments map[string][]string
+	// Notes are newest-first, so the first daylight note is the current state.
 	for _, note := range notes {
 		if sha, assignments, ok := ParseNote(note.Body); ok {
 			prevSHA, prevAssignments = sha, assignments
@@ -78,7 +79,8 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	return nil
 }
 
-// equalStrings reports whether two sorted string slices are element-wise equal.
+// equalStrings reports whether two string slices are element-wise equal. Callers pass
+// Reviewers output, which is sorted, so element-wise comparison is a set comparison.
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
