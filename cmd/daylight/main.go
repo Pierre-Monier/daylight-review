@@ -105,7 +105,8 @@ func runCheck(args []string) {
 	sections := ownership.Parse(string(content))
 
 	printf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
-	reviewers := pipeline.ResolveAndSelect(changedFiles, sections, *author, selection.RandomStrategy{}, printf)
+	assignments := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, selection.RandomStrategy{}, printf)
+	reviewers := pipeline.Reviewers(assignments)
 
 	fmt.Println()
 	fmt.Println("=== RESULT ===")
