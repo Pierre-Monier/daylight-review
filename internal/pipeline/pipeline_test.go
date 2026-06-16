@@ -54,24 +54,7 @@ func TestRun_Draft_ExitsEarly(t *testing.T) {
 func TestRun_AlreadyProcessedBySHA_ExitsEarly(t *testing.T) {
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("sha1", "anyhash")}}, nil
-		},
-	}
-
-	err := Run(context.Background(), baseCfg(), cl, nil)
-
-	require.NoError(t, err)
-}
-
-func TestRun_AlreadyProcessedByFilesHash_ExitsEarly(t *testing.T) {
-	files := []string{"/src/main.go"}
-	hash := filesHash(files)
-	cl := &mockClient{
-		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", hash)}}, nil
-		},
-		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
-			return files, "author", nil
+			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}})}}, nil
 		},
 	}
 
@@ -126,7 +109,10 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, assignedReviewers, 1)
 	assert.Contains(t, []string{"alice", "bob"}, assignedReviewers[0])
-	assert.Contains(t, postedNote, "daylight:processed sha=sha1")
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Len(t, postedAssignments["Backend"], 1)
 }
 
 func TestRun_MultiReviewer_AssignsN(t *testing.T) {
@@ -183,6 +169,67 @@ func TestRun_AuthorExcludedFromSelection(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"bob"}, assignedReviewers)
+}
+
+func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
+	setCalled := false
+	var postedNote string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error {
+			setCalled = true
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, b string) error {
+			postedNote = b
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.False(t, setCalled, "reviewers unchanged, SetReviewers must not be called")
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
+}
+
+func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
+	clearCalled := false
+	var assigned []string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/docs/readme.md"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			clearCalled = true
+			assigned = u
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.True(t, clearCalled, "reviewers must be cleared when all scopes vanish")
+	assert.Empty(t, assigned)
 }
 
 // firstStrategy deterministically picks the first eligible candidate, so diff tests
