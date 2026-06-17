@@ -71,7 +71,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		}
 	}
 
-	if err := gl.PostInternalNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments)); err != nil {
+	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments), true); err != nil {
 		return fmt.Errorf("post note: %w", err)
 	}
 

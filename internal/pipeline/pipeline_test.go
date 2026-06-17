@@ -19,7 +19,7 @@ type mockClient struct {
 	mrChanges         func(context.Context, string, string) ([]string, string, error)
 	codeownersContent func(context.Context, string, string) (string, error)
 	setReviewers      func(context.Context, string, string, []string) error
-	postInternalNote  func(context.Context, string, string, string) error
+	postNote          func(context.Context, string, string, string, bool) error
 }
 
 func (m *mockClient) MRNotes(ctx context.Context, p, mr string) ([]gitlab.Note, error) {
@@ -34,8 +34,8 @@ func (m *mockClient) CODEOWNERSContent(ctx context.Context, p, ref string) (stri
 func (m *mockClient) SetReviewers(ctx context.Context, p, mr string, u []string) error {
 	return m.setReviewers(ctx, p, mr, u)
 }
-func (m *mockClient) PostInternalNote(ctx context.Context, p, mr, b string) error {
-	return m.postInternalNote(ctx, p, mr, b)
+func (m *mockClient) PostNote(ctx context.Context, p, mr, b string, c bool) error {
+	return m.postNote(ctx, p, mr, b, c)
 }
 
 func baseCfg() config.Config {
@@ -98,7 +98,7 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 			assignedReviewers = u
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, b string) error {
+		postNote: func(_ context.Context, _, _, b string, _ bool) error {
 			postedNote = b
 			return nil
 		},
@@ -131,7 +131,7 @@ func TestRun_MultiReviewer_AssignsN(t *testing.T) {
 			assignedReviewers = u
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+		postNote: func(_ context.Context, _, _, _ string, _ bool) error { return nil },
 	}
 
 	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
@@ -162,7 +162,7 @@ func TestRun_AuthorExcludedFromSelection(t *testing.T) {
 			assignedReviewers = u
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+		postNote: func(_ context.Context, _, _, _ string, _ bool) error { return nil },
 	}
 
 	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
@@ -188,7 +188,7 @@ func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
 			setCalled = true
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, b string) error {
+		postNote: func(_ context.Context, _, _, b string, _ bool) error {
 			postedNote = b
 			return nil
 		},
@@ -222,7 +222,7 @@ func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
 			assigned = u
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+		postNote: func(_ context.Context, _, _, _ string, _ bool) error { return nil },
 	}
 
 	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
@@ -343,7 +343,7 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 			assigned = u
 			return nil
 		},
-		postInternalNote: func(_ context.Context, _, _, b string) error {
+		postNote: func(_ context.Context, _, _, b string, _ bool) error {
 			postedNote = b
 			return nil
 		},

@@ -23,7 +23,7 @@ type GitLabClient interface {
 	MRChanges(ctx context.Context, projectID, mrIID string) (files []string, authorUsername string, err error)
 	CODEOWNERSContent(ctx context.Context, projectID, ref string) (string, error)
 	SetReviewers(ctx context.Context, projectID, mrIID string, usernames []string) error
-	PostInternalNote(ctx context.Context, projectID, mrIID, body string) error
+	PostNote(ctx context.Context, projectID, mrIID, body string, confidential bool) error
 }
 
 var _ GitLabClient = (*Client)(nil)
@@ -126,10 +126,10 @@ func (c *Client) userID(ctx context.Context, username string) (int, error) {
 	return users[0].ID, nil
 }
 
-func (c *Client) PostInternalNote(ctx context.Context, projectID, mrIID, body string) error {
+func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string, confidential bool) error {
 	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/notes", c.baseURL, projectID, mrIID)
 	return c.doJSON(ctx, http.MethodPost, url,
-		map[string]any{"body": body, "confidential": true},
+		map[string]any{"body": body, "confidential": confidential},
 		http.StatusCreated)
 }
 
