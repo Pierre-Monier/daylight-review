@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/daylight-review/daylight/internal/config"
@@ -83,7 +84,7 @@ func TestRun_NoOwners_Noop(t *testing.T) {
 
 func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	var assignedReviewers []string
-	var postedNote string
+	var posted []recordedNote
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
 			return nil, nil
@@ -98,8 +99,8 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 			assignedReviewers = u
 			return nil
 		},
-		postNote: func(_ context.Context, _, _, b string, _ bool) error {
-			postedNote = b
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
 			return nil
 		},
 	}
@@ -109,7 +110,9 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, assignedReviewers, 1)
 	assert.Contains(t, []string{"alice", "bob"}, assignedReviewers[0])
-	sha, postedAssignments, ok := ParseNote(postedNote)
+	body, ok := findProcessedNote(posted)
+	require.True(t, ok, "a processed note must be posted")
+	sha, postedAssignments, ok := ParseNote(body)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Len(t, postedAssignments["Backend"], 1)
@@ -230,6 +233,20 @@ func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, clearCalled, "reviewers must be cleared when all scopes vanish")
 	assert.Empty(t, assigned)
+}
+
+type recordedNote struct {
+	body         string
+	confidential bool
+}
+
+func findProcessedNote(notes []recordedNote) (string, bool) {
+	for _, n := range notes {
+		if _, _, ok := ParseNote(n.body); ok {
+			return n.body, true
+		}
+	}
+	return "", false
 }
 
 // firstStrategy deterministically picks the first eligible candidate, so diff tests
@@ -358,4 +375,84 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 	assert.Equal(t, "sha1", sha)
 	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
 	assert.Equal(t, []string{"carol"}, postedAssignments["Frontend"])
+}
+
+func TestRun_FirstRun_PostsFeedbackNote(t *testing.T) {
+	var posted []recordedNote
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return nil, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
+
+	require.NoError(t, err)
+	wantBody, wantConf := feedbackNote()
+	assert.Contains(t, posted, recordedNote{wantBody, wantConf})
+}
+
+func TestRun_NotFirstRun_NoFeedbackNote(t *testing.T) {
+	var posted []recordedNote
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	wantBody, _ := feedbackNote()
+	for _, n := range posted {
+		assert.NotEqual(t, wantBody, n.body, "feedback note must not post after the first run")
+	}
+}
+
+func TestRun_FeedbackNoteError_RunStillSucceeds(t *testing.T) {
+	wantBody, _ := feedbackNote()
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return nil, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, _ bool) error {
+			if b == wantBody {
+				return fmt.Errorf("boom")
+			}
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
+
+	require.NoError(t, err)
 }
