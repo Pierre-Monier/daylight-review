@@ -9,12 +9,23 @@ import (
 )
 
 func TestFormatAndParseNote_RoundTrip(t *testing.T) {
-	note := FormatNote("abc123", "def456")
-	sha, hash, ok := ParseNote(note)
+	assignments := map[string][]string{"Backend Team": {"alice", "bob"}, "Frontend": {"carol"}}
+
+	note := FormatNote("abc123", assignments)
+	sha, got, ok := ParseNote(note)
 
 	assert.True(t, ok)
 	assert.Equal(t, "abc123", sha)
-	assert.Equal(t, "def456", hash)
+	assert.Equal(t, assignments, got)
+}
+
+func TestFormatAndParseNote_EmptyAssignments(t *testing.T) {
+	note := FormatNote("abc123", map[string][]string{})
+	sha, got, ok := ParseNote(note)
+
+	assert.True(t, ok)
+	assert.Equal(t, "abc123", sha)
+	assert.Empty(t, got)
 }
 
 func TestParseNote_InvalidFormat_ReturnsFalse(t *testing.T) {

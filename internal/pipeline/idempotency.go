@@ -1,35 +1,37 @@
-// ABOUTME: formats and parses internal MR notes used to track processed pipeline runs
-// ABOUTME: note format: "daylight:processed sha=<sha> files_hash=<hash>"
+// ABOUTME: formats and parses the internal MR note that records processed runs
+// ABOUTME: note body is "daylight:processed " followed by JSON {sha, assignments}
 package pipeline
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 )
 
-func FormatNote(sha, filesHash string) string {
-	return fmt.Sprintf("daylight:processed sha=%s files_hash=%s", sha, filesHash)
+const notePrefix = "daylight:processed "
+
+type noteState struct {
+	SHA         string              `json:"sha"`
+	Assignments map[string][]string `json:"assignments"`
 }
 
-func ParseNote(body string) (sha, filesHash string, ok bool) {
-	if !strings.HasPrefix(body, "daylight:processed ") {
-		return "", "", false
+// FormatNote encodes the processed commit SHA and the scope→reviewers map as a note body.
+func FormatNote(sha string, assignments map[string][]string) string {
+	data, _ := json.Marshal(noteState{SHA: sha, Assignments: assignments})
+	return notePrefix + string(data)
+}
+
+// ParseNote decodes a note body produced by FormatNote. ok is false for any body that is
+// not a daylight note or whose SHA is missing.
+func ParseNote(body string) (sha string, assignments map[string][]string, ok bool) {
+	if !strings.HasPrefix(body, notePrefix) {
+		return "", nil, false
 	}
-	parts := strings.Fields(body)
-	if len(parts) != 3 {
-		return "", "", false
+	var state noteState
+	if err := json.Unmarshal([]byte(body[len(notePrefix):]), &state); err != nil {
+		return "", nil, false
 	}
-	for _, part := range parts[1:] {
-		kv := strings.SplitN(part, "=", 2)
-		if len(kv) != 2 {
-			return "", "", false
-		}
-		switch kv[0] {
-		case "sha":
-			sha = kv[1]
-		case "files_hash":
-			filesHash = kv[1]
-		}
+	if state.SHA == "" {
+		return "", nil, false
 	}
-	return sha, filesHash, sha != "" && filesHash != ""
+	return state.SHA, state.Assignments, true
 }

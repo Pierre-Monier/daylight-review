@@ -8,6 +8,7 @@ import (
 
 	"github.com/daylight-review/daylight/internal/config"
 	"github.com/daylight-review/daylight/internal/gitlab"
+	"github.com/daylight-review/daylight/internal/ownership"
 	"github.com/daylight-review/daylight/internal/selection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,24 +54,7 @@ func TestRun_Draft_ExitsEarly(t *testing.T) {
 func TestRun_AlreadyProcessedBySHA_ExitsEarly(t *testing.T) {
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("sha1", "anyhash")}}, nil
-		},
-	}
-
-	err := Run(context.Background(), baseCfg(), cl, nil)
-
-	require.NoError(t, err)
-}
-
-func TestRun_AlreadyProcessedByFilesHash_ExitsEarly(t *testing.T) {
-	files := []string{"/src/main.go"}
-	hash := filesHash(files)
-	cl := &mockClient{
-		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", hash)}}, nil
-		},
-		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
-			return files, "author", nil
+			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}})}}, nil
 		},
 	}
 
@@ -125,7 +109,10 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, assignedReviewers, 1)
 	assert.Contains(t, []string{"alice", "bob"}, assignedReviewers[0])
-	assert.Contains(t, postedNote, "daylight:processed sha=sha1")
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Len(t, postedAssignments["Backend"], 1)
 }
 
 func TestRun_MultiReviewer_AssignsN(t *testing.T) {
@@ -182,4 +169,193 @@ func TestRun_AuthorExcludedFromSelection(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"bob"}, assignedReviewers)
+}
+
+func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
+	setCalled := false
+	var postedNote string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error {
+			setCalled = true
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, b string) error {
+			postedNote = b
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.False(t, setCalled, "reviewers unchanged, SetReviewers must not be called")
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
+}
+
+func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
+	clearCalled := false
+	var assigned []string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/docs/readme.md"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			clearCalled = true
+			assigned = u
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, _ string) error { return nil },
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.True(t, clearCalled, "reviewers must be cleared when all scopes vanish")
+	assert.Empty(t, assigned)
+}
+
+// firstStrategy deterministically picks the first eligible candidate, so diff tests
+// can assert exact reviewers. Pools with more than one owner come from ownership.Resolve
+// in non-deterministic map order, so exact-reviewer assertions use single-owner pools or
+// pools reduced to one eligible candidate by exclusion.
+type firstStrategy struct{}
+
+func (firstStrategy) Select(candidates []string, exclude string) (string, error) {
+	for _, c := range candidates {
+		if c != exclude {
+			return c, nil
+		}
+	}
+	return "", selection.ErrNoEligibleReviewer
+}
+
+func noopPrintf(string, ...any) {}
+
+func TestDiffAndSelect_PresentScope_KeptVerbatim(t *testing.T) {
+	sections := ownership.Parse("[Backend][2]\n/src/ @alice @bob @carol\n")
+	files := []string{"/src/main.go"}
+	previous := map[string][]string{"Backend": {"alice", "bob"}}
+
+	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice", "bob"}, got["Backend"])
+}
+
+func TestDiffAndSelect_NewScopeAdded_OnlyNewSelected(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n")
+	files := []string{"/src/main.go", "/web/app.js"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice"}, got["Backend"])
+	assert.Equal(t, []string{"carol"}, got["Frontend"])
+}
+
+func TestDiffAndSelect_ScopeRemoved_Dropped(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n")
+	files := []string{"/src/main.go"}
+	previous := map[string][]string{"Backend": {"alice"}, "Frontend": {"carol"}}
+
+	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, map[string][]string{"Backend": {"alice"}}, got)
+}
+
+func TestDiffAndSelect_AllScopesRemoved_Empty(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
+	files := []string{"/docs/readme.md"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+
+	assert.Empty(t, got)
+}
+
+func TestDiffAndSelect_NewScope_ExcludesAlreadyAssigned(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @alice @dave\n")
+	files := []string{"/src/main.go", "/web/app.js"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice"}, got["Backend"])
+	assert.Equal(t, []string{"dave"}, got["Frontend"])
+}
+
+func TestDiffAndSelect_NewScope_ExcludesAuthor(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n")
+	files := []string{"/src/main.go"}
+
+	got := DiffAndSelect(files, sections, "alice", nil, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"bob"}, got["Backend"])
+}
+
+func TestDiffAndSelect_NewScope_PoolExhausted_NoReviewer(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
+	files := []string{"/src/main.go"}
+
+	got := DiffAndSelect(files, sections, "alice", nil, firstStrategy{}, noopPrintf)
+
+	_, has := got["Backend"]
+	assert.False(t, has)
+}
+
+func TestReviewers_SortedDeduped(t *testing.T) {
+	assignments := map[string][]string{"Backend": {"bob", "alice"}, "Frontend": {"alice", "carol"}}
+
+	assert.Equal(t, []string{"alice", "bob", "carol"}, Reviewers(assignments))
+}
+
+func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
+	var assigned []string
+	var postedNote string
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go", "/web/app.js"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			assigned = u
+			return nil
+		},
+		postInternalNote: func(_ context.Context, _, _, b string) error {
+			postedNote = b
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alice", "carol"}, assigned)
+	sha, postedAssignments, ok := ParseNote(postedNote)
+	assert.True(t, ok)
+	assert.Equal(t, "sha1", sha)
+	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
+	assert.Equal(t, []string{"carol"}, postedAssignments["Frontend"])
 }
