@@ -14,13 +14,13 @@ publish-image:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - echo "$DOCKER_HUB_TOKEN" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin
-    - docker build -t pmonierdev/daylight:latest -t pmonierdev/daylight:$CI_COMMIT_SHORT_SHA .
-    - docker push pmonierdev/daylight:latest
-    - docker push pmonierdev/daylight:$CI_COMMIT_SHORT_SHA
+    - docker build -t daylightreview/daylight:latest -t daylightreview/daylight:$CI_COMMIT_SHORT_SHA .
+    - docker push daylightreview/daylight:latest
+    - docker push daylightreview/daylight:$CI_COMMIT_SHORT_SHA
 
 daylight-assign:
   stage: assign
-  image: pmonierdev/daylight:latest
+  image: daylightreview/daylight:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:

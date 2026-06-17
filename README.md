@@ -42,7 +42,7 @@ In your project or group: **Settings → CI/CD → Variables**
 
 ```yaml
 daylight-assign:
-  image: pmonierdev/daylight:latest
+  image: daylightreview/daylight:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
@@ -72,7 +72,7 @@ Set `DAYLIGHT_GITLAB_URL` to your instance URL:
 
 ```yaml
 daylight-assign:
-  image: pmonierdev/daylight:latest
+  image: daylightreview/daylight:latest
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
