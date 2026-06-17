@@ -5,7 +5,7 @@ package pipeline
 import "fmt"
 
 // feedbackURL is the destination of the feedback link in the MR note.
-const feedbackURL = "https://PLACEHOLDER-FORM-URL"
+const feedbackURL = "https://PLACEHOLDER-FORM-URL" // TODO: real form URL
 
 // feedbackNote returns the body and visibility of the one-time feedback note
 // posted on the first run against a merge request.
