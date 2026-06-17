@@ -71,8 +71,15 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		}
 	}
 
-	if err := gl.PostInternalNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments)); err != nil {
+	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments), true); err != nil {
 		return fmt.Errorf("post note: %w", err)
+	}
+
+	if prevSHA == "" {
+		body, confidential := feedbackNote()
+		if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, body, confidential); err != nil {
+			log.Printf("warning: post feedback note: %v", err)
+		}
 	}
 
 	log.Println("done")
