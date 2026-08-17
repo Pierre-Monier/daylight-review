@@ -36,7 +36,8 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 			break
 		}
 	}
-	if prevSHA == cfg.CommitSHA {
+	ooo := unionOOO(prevOoo, requestedOOO(notes))
+	if prevSHA == cfg.CommitSHA && len(ooo) == len(prevOoo) {
 		log.Println("already processed this commit, skipping")
 		return nil
 	}
@@ -53,7 +54,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 	sections := ownership.Parse(content)
 
-	assignments, _ := DiffAndSelect(files, sections, author, prevAssignments, prevOoo, strategy, log.Printf)
+	assignments, unfilled := DiffAndSelect(files, sections, author, prevAssignments, ooo, strategy, log.Printf)
 	newReviewers := Reviewers(assignments)
 	prevReviewers := Reviewers(prevAssignments)
 
@@ -72,8 +73,18 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		}
 	}
 
-	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments, prevOoo), true); err != nil {
+	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments, ooo), true); err != nil {
 		return fmt.Errorf("post note: %w", err)
+	}
+
+	for _, u := range unfilled {
+		body, confidential := oooWarningNote(u.Scope, u.Username)
+		if noteExists(notes, body) {
+			continue
+		}
+		if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, body, confidential); err != nil {
+			log.Printf("warning: post out-of-office warning: %v", err)
+		}
 	}
 
 	if prevSHA == "" {
@@ -225,6 +236,16 @@ func selectN(candidates []string, count int, author string, assigned map[string]
 		printf("  round %d: selected %s", i+1, reviewer)
 	}
 	return selected
+}
+
+// noteExists reports whether a note with exactly the given body is already on the MR.
+func noteExists(notes []gitlab.Note, body string) bool {
+	for _, n := range notes {
+		if n.Body == body {
+			return true
+		}
+	}
+	return false
 }
 
 // Reviewers flattens a scope→reviewers map into a sorted, de-duplicated reviewer list.

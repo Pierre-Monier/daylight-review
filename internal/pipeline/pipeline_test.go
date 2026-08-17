@@ -490,3 +490,133 @@ func TestRun_FeedbackNoteError_RunStillSucceeds(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestRun_OOOCommand_SameSHA_Reassigns(t *testing.T) {
+	var assignedReviewers []string
+	var posted []recordedNote
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			assignedReviewers = u
+			return nil
+		},
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bob"}, assignedReviewers)
+	body, ok := findProcessedNote(posted)
+	require.True(t, ok)
+	_, postedAssignments, postedOoo, ok := ParseNote(body)
+	require.True(t, ok)
+	assert.Equal(t, []string{"bob"}, postedAssignments["Backend"])
+	assert.Equal(t, []string{"alice"}, postedOoo)
+}
+
+func TestRun_OOOAlreadyRecorded_SameSHA_Skips(t *testing.T) {
+	setCalled := false
+	postCalled := false
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"bob"}}, []string{"alice"})},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error {
+			setCalled = true
+			return nil
+		},
+		postNote: func(_ context.Context, _, _, _ string, _ bool) error {
+			postCalled = true
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.False(t, setCalled, "OOO already recorded at this SHA, must skip")
+	assert.False(t, postCalled, "must not post a new note when skipping")
+}
+
+func TestRun_OOONoReplacement_PostsWarningOnce(t *testing.T) {
+	var posted []recordedNote
+	warningBody, _ := oooWarningNote("Backend", "alice")
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Contains(t, posted, recordedNote{warningBody, false})
+}
+
+func TestRun_OOOWarningAlreadyPosted_NotReposted(t *testing.T) {
+	var posted []recordedNote
+	warningBody, _ := oooWarningNote("Backend", "alice")
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+				{Body: warningBody},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.NotContains(t, posted, recordedNote{warningBody, false})
+}
