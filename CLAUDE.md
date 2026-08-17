@@ -105,13 +105,6 @@ implemented code is only the "assignment" slice of a broader product.
 When acceptance criteria in the user stories or a spec conflict with what the code does, treat
 the code as current and the docs as intent — and flag the divergence.
 
-## Work in progress
-
-The `feature/feedback-note` branch is mid-TDD: `internal/pipeline/feedback_test.go` exists and
-fails because `internal/pipeline/feedback.go` (`feedbackNote()` + `feedbackURL`) is not written
-yet, and the one-time post is not yet wired into `pipeline.Run`. See
-`docs/superpowers/specs/2026-06-17-feedback-note-design.md` and the matching plan.
-
 ## Conventions
 
 - Every source file starts with two `// ABOUTME:` comment lines describing what it does.
