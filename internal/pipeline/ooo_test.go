@@ -43,3 +43,10 @@ func TestUnionOOO_MergesSortedDeduped(t *testing.T) {
 	assert.Equal(t, []string{"alice", "bob", "carol"},
 		unionOOO([]string{"bob", "alice"}, []string{"carol", "alice"}))
 }
+
+func TestOOOWarningNote(t *testing.T) {
+	body, confidential := oooWarningNote("Backend", "alice")
+	assert.False(t, confidential)
+	assert.Contains(t, body, "@alice")
+	assert.Contains(t, body, "Backend")
+}

@@ -3,6 +3,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -19,6 +20,13 @@ func ParseOOOCommand(body string) (username string, ok bool) {
 		return "", false
 	}
 	return strings.TrimPrefix(fields[1], "@"), true
+}
+
+// oooWarningNote returns the body and visibility of the visible note posted when an
+// out-of-office reviewer has no eligible replacement in their scope.
+func oooWarningNote(scope, username string) (body string, confidential bool) {
+	body = fmt.Sprintf("⚠️ @%s is out and no other owner of [%s] is available — please assign manually.", username, scope)
+	return body, false
 }
 
 // requestedOOO returns the sorted, deduped usernames flagged out-of-office across all notes.
