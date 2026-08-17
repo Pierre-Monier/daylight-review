@@ -53,7 +53,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 	sections := ownership.Parse(content)
 
-	assignments := DiffAndSelect(files, sections, author, prevAssignments, strategy, log.Printf)
+	assignments, _ := DiffAndSelect(files, sections, author, prevAssignments, prevOoo, strategy, log.Printf)
 	newReviewers := Reviewers(assignments)
 	prevReviewers := Reviewers(prevAssignments)
 
@@ -101,12 +101,21 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+// Unfilled names a scope left without a reviewer because an out-of-office reviewer
+// had no eligible replacement.
+type Unfilled struct {
+	Scope    string
+	Username string
+}
+
 // DiffAndSelect computes the new per-scope reviewer assignments. Scopes matched by the
 // changed files are diffed against the previously-stored assignments: a scope present in
-// both keeps its stored reviewers verbatim; a newly-matched scope gets freshly-selected
-// reviewers (count from the section, excluding the author and anyone already assigned);
-// a scope no longer matched is dropped. Emits per-step detail via printf.
-func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, strategy selection.SelectionStrategy, printf func(string, ...any)) map[string][]string {
+// both keeps its stored reviewers verbatim, except out-of-office reviewers are dropped and
+// each is replaced by a freshly-selected owner; a newly-matched scope gets freshly-selected
+// reviewers (count from the section, excluding the author, out-of-office users, and anyone
+// already assigned); a scope no longer matched is dropped. When an out-of-office reviewer
+// cannot be replaced, the scope is left short and the reviewer is returned in unfilled.
+func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, ooo []string, strategy selection.SelectionStrategy, printf func(string, ...any)) (map[string][]string, []Unfilled) {
 	printf("=== FILE MATCHING ===")
 	printf("author: %q (excluded from selection)", author)
 	printf("changed files (%d):", len(files))
@@ -133,18 +142,44 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 		sectionCount[s.Name] = s.RequiredCount
 	}
 
+	oooSet := make(map[string]bool, len(ooo))
+	for _, u := range ooo {
+		oooSet[u] = true
+	}
+
 	result := make(map[string][]string)
 	assigned := make(map[string]bool)
+	for u := range oooSet {
+		assigned[u] = true // out-of-office reviewers are never selected
+	}
+	var unfilled []Unfilled
 
 	printf("=== SCOPE DIFF ===")
 	for scope := range currentPools {
-		if prev, ok := previous[scope]; ok {
-			result[scope] = prev
-			for _, r := range prev {
-				assigned[r] = true
-			}
-			printf("[%s] kept: %s", scope, strings.Join(prev, ", "))
+		prev, ok := previous[scope]
+		if !ok {
+			continue
 		}
+		kept := make([]string, 0, len(prev))
+		for _, r := range prev {
+			if oooSet[r] {
+				printf("[%s] reviewer %s is out, selecting replacement", scope, r)
+				replacement := selectN(currentPools[scope], 1, author, assigned, strategy, printf)
+				if len(replacement) == 0 {
+					printf("[%s] no replacement available for %s", scope, r)
+					unfilled = append(unfilled, Unfilled{Scope: scope, Username: r})
+					continue
+				}
+				kept = append(kept, replacement[0])
+				continue
+			}
+			kept = append(kept, r)
+			assigned[r] = true
+		}
+		if len(kept) > 0 {
+			result[scope] = kept
+		}
+		printf("[%s] kept: %s", scope, strings.Join(kept, ", "))
 	}
 	for scope, prev := range previous {
 		if _, ok := currentPools[scope]; !ok {
@@ -165,7 +200,7 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 		}
 	}
 
-	return result
+	return result, unfilled
 }
 
 // selectN selects up to count reviewers from candidates, excluding the author and anyone
