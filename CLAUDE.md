@@ -66,6 +66,14 @@ next run it reads notes newest-first, parses the first daylight note as the prev
 This per-scope diffing is why the note stores a `section → reviewers` map rather than a flat
 list. When changing assignment behavior, preserve this stability invariant.
 
+A reviewer can be flagged out-of-office with an MR comment `daylight:ooo @user`. On the
+next run (push or job retry) Daylight reads the comment from the notes it already fetches,
+drops that reviewer from their scope, and backfills a replacement (excluding the author,
+out-of-office users, and already-assigned reviewers). The flagged set is stored in the
+processed note (`ooo`) and is sticky for the MR — a flagged user is never re-selected. A
+new OOO command overrides the same-SHA skip. If a scope has no available replacement it is
+left short and a one-time non-confidential warning note is posted.
+
 Known limitation, documented in code: `MRNotes` fetches only the first page (100 notes, no
 pagination), so on a very chatty MR the idempotency note could fall off page 1.
 
