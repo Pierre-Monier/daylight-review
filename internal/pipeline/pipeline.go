@@ -28,10 +28,11 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 
 	var prevSHA string
 	var prevAssignments map[string][]string
+	var prevOoo []string
 	// Notes are newest-first, so the first daylight note is the current state.
 	for _, note := range notes {
-		if sha, assignments, ok := ParseNote(note.Body); ok {
-			prevSHA, prevAssignments = sha, assignments
+		if sha, assignments, ooo, ok := ParseNote(note.Body); ok {
+			prevSHA, prevAssignments, prevOoo = sha, assignments, ooo
 			break
 		}
 	}
@@ -71,7 +72,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		}
 	}
 
-	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments), true); err != nil {
+	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments, prevOoo), true); err != nil {
 		return fmt.Errorf("post note: %w", err)
 	}
 

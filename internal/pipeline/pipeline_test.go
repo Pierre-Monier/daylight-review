@@ -55,7 +55,7 @@ func TestRun_Draft_ExitsEarly(t *testing.T) {
 func TestRun_AlreadyProcessedBySHA_ExitsEarly(t *testing.T) {
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 	}
 
@@ -112,7 +112,7 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	assert.Contains(t, []string{"alice", "bob"}, assignedReviewers[0])
 	body, ok := findProcessedNote(posted)
 	require.True(t, ok, "a processed note must be posted")
-	sha, postedAssignments, ok := ParseNote(body)
+	sha, postedAssignments, _, ok := ParseNote(body)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Len(t, postedAssignments["Backend"], 1)
@@ -179,7 +179,7 @@ func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
 	var postedNote string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go"}, "author", nil
@@ -201,7 +201,7 @@ func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, setCalled, "reviewers unchanged, SetReviewers must not be called")
-	sha, postedAssignments, ok := ParseNote(postedNote)
+	sha, postedAssignments, _, ok := ParseNote(postedNote)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
@@ -212,7 +212,7 @@ func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
 	var assigned []string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/docs/readme.md"}, "author", nil
@@ -242,7 +242,7 @@ type recordedNote struct {
 
 func findProcessedNote(notes []recordedNote) (string, bool) {
 	for _, n := range notes {
-		if _, _, ok := ParseNote(n.body); ok {
+		if _, _, _, ok := ParseNote(n.body); ok {
 			return n.body, true
 		}
 	}
@@ -348,7 +348,7 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 	var postedNote string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go", "/web/app.js"}, "author", nil
@@ -370,7 +370,7 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice", "carol"}, assigned)
-	sha, postedAssignments, ok := ParseNote(postedNote)
+	sha, postedAssignments, _, ok := ParseNote(postedNote)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
@@ -407,7 +407,7 @@ func TestRun_NotFirstRun_NoFeedbackNote(t *testing.T) {
 	var posted []recordedNote
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go"}, "author", nil
