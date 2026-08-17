@@ -16,7 +16,6 @@ import (
 	"github.com/daylight-review/daylight/internal/selection"
 )
 
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "check" {
 		runCheck(os.Args[2:])
@@ -36,6 +35,9 @@ func runAssign(args []string) {
 		fmt.Fprintln(os.Stderr, "  CI_MERGE_REQUEST_IID    Merge request IID (required)")
 		fmt.Fprintln(os.Stderr, "  CI_COMMIT_SHA           Commit SHA (required)")
 		fmt.Fprintln(os.Stderr, "  DAYLIGHT_GITLAB_URL     GitLab instance URL (optional, defaults to gitlab.com)")
+		fmt.Fprintln(os.Stderr, "  DAYLIGHT_REUSE_SHARED_REVIEWERS")
+		fmt.Fprintln(os.Stderr, "                          reuse an already-assigned reviewer for an overlapping")
+		fmt.Fprintln(os.Stderr, "                          scope instead of picking a fresh one (optional, \"true\")")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Subcommands:")
 		fmt.Fprintln(os.Stderr, "  check   Dry-run: resolve owners from a local CODEOWNERS file")
@@ -83,11 +85,14 @@ func runCheck(args []string) {
 		fmt.Fprintln(os.Stderr, "Resolves owners and selects reviewers without making any API calls.")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Flags:")
-		fmt.Fprintln(os.Stderr, "  -codeowners   path to CODEOWNERS file (default: CODEOWNERS)")
-		fmt.Fprintln(os.Stderr, "  -author       MR author username to exclude from selection (optional)")
+		fmt.Fprintln(os.Stderr, "  -codeowners     path to CODEOWNERS file (default: CODEOWNERS)")
+		fmt.Fprintln(os.Stderr, "  -author         MR author username to exclude from selection (optional)")
+		fmt.Fprintln(os.Stderr, "  -reuse-shared   reuse an already-assigned reviewer for an overlapping scope")
+		fmt.Fprintln(os.Stderr, "                  instead of picking a fresh one (optional)")
 	}
 	codeownersPath := fs.String("codeowners", "CODEOWNERS", "")
 	author := fs.String("author", "", "")
+	reuseShared := fs.Bool("reuse-shared", false, "")
 	_ = fs.Parse(args)
 
 	changedFiles := fs.Args()
@@ -105,7 +110,7 @@ func runCheck(args []string) {
 	sections := ownership.Parse(string(content))
 
 	printf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
-	assignments := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, selection.RandomStrategy{}, printf)
+	assignments := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, *reuseShared, selection.RandomStrategy{}, printf)
 	reviewers := pipeline.Reviewers(assignments)
 
 	fmt.Println()

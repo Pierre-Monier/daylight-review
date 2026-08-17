@@ -271,7 +271,7 @@ func TestDiffAndSelect_PresentScope_KeptVerbatim(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice", "bob"}}
 
-	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice", "bob"}, got["Backend"])
 }
@@ -281,7 +281,7 @@ func TestDiffAndSelect_NewScopeAdded_OnlyNewSelected(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"carol"}, got["Frontend"])
@@ -292,7 +292,7 @@ func TestDiffAndSelect_ScopeRemoved_Dropped(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}, "Frontend": {"carol"}}
 
-	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, map[string][]string{"Backend": {"alice"}}, got)
 }
@@ -302,7 +302,7 @@ func TestDiffAndSelect_AllScopesRemoved_Empty(t *testing.T) {
 	files := []string{"/docs/readme.md"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
 
 	assert.Empty(t, got)
 }
@@ -312,7 +312,7 @@ func TestDiffAndSelect_NewScope_ExcludesAlreadyAssigned(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"dave"}, got["Frontend"])
@@ -322,7 +322,7 @@ func TestDiffAndSelect_NewScope_ExcludesAuthor(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n")
 	files := []string{"/src/main.go"}
 
-	got := DiffAndSelect(files, sections, "alice", nil, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "alice", nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"bob"}, got["Backend"])
 }
@@ -331,10 +331,45 @@ func TestDiffAndSelect_NewScope_PoolExhausted_NoReviewer(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
 	files := []string{"/src/main.go"}
 
-	got := DiffAndSelect(files, sections, "alice", nil, firstStrategy{}, noopPrintf)
+	got := DiffAndSelect(files, sections, "alice", nil, false, firstStrategy{}, noopPrintf)
 
 	_, has := got["Backend"]
 	assert.False(t, has)
+}
+
+func TestDiffAndSelect_ReuseShared_SharedReviewerReusedForNewScope(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Core][1]\n/core/ @alice @dave\n")
+	files := []string{"/src/main.go", "/core/x.go"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice"}, got["Backend"])
+	assert.Equal(t, []string{"alice"}, got["Core"])
+}
+
+func TestDiffAndSelect_ReuseShared_TopsUpToRequiredCount(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Core][2]\n/core/ @alice @dave @erin\n")
+	files := []string{"/src/main.go", "/core/x.go"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice"}, got["Backend"])
+	require.Len(t, got["Core"], 2)
+	assert.Equal(t, "alice", got["Core"][0], "reused reviewer comes first")
+	assert.Contains(t, []string{"dave", "erin"}, got["Core"][1], "count topped up with a fresh reviewer")
+}
+
+func TestDiffAndSelect_ReuseShared_NoSharedCandidateSelectsFresh(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n")
+	files := []string{"/src/main.go", "/web/app.js"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"alice"}, got["Backend"])
+	assert.Equal(t, []string{"carol"}, got["Frontend"])
 }
 
 func TestReviewers_SortedDeduped(t *testing.T) {

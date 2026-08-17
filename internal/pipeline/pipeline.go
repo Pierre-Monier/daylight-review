@@ -52,7 +52,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 	sections := ownership.Parse(content)
 
-	assignments := DiffAndSelect(files, sections, author, prevAssignments, strategy, log.Printf)
+	assignments := DiffAndSelect(files, sections, author, prevAssignments, cfg.ReuseSharedReviewers, strategy, log.Printf)
 	newReviewers := Reviewers(assignments)
 	prevReviewers := Reviewers(prevAssignments)
 
@@ -104,8 +104,11 @@ func equalStrings(a, b []string) bool {
 // changed files are diffed against the previously-stored assignments: a scope present in
 // both keeps its stored reviewers verbatim; a newly-matched scope gets freshly-selected
 // reviewers (count from the section, excluding the author and anyone already assigned);
-// a scope no longer matched is dropped. Emits per-step detail via printf.
-func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, strategy selection.SelectionStrategy, printf func(string, ...any)) map[string][]string {
+// a scope no longer matched is dropped. When reuseShared is true, a newly-matched scope
+// first credits any already-assigned reviewer that is one of its candidates toward its
+// required count, topping up with fresh reviewers only for the remainder. Emits per-step
+// detail via printf.
+func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, reuseShared bool, strategy selection.SelectionStrategy, printf func(string, ...any)) map[string][]string {
 	printf("=== FILE MATCHING ===")
 	printf("author: %q (excluded from selection)", author)
 	printf("changed files (%d):", len(files))
@@ -159,12 +162,38 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 			count = 1
 		}
 		printf("[%s] new — pool: %s, need: %d", scope, strings.Join(candidates, ", "), count)
-		if selected := selectN(candidates, count, author, assigned, strategy, printf); len(selected) > 0 {
+		var selected []string
+		if reuseShared {
+			selected = reuseAssigned(candidates, count, author, assigned)
+			for _, r := range selected {
+				printf("  reused already-assigned reviewer %s", r)
+			}
+		}
+		if len(selected) < count {
+			selected = append(selected, selectN(candidates, count-len(selected), author, assigned, strategy, printf)...)
+		}
+		if len(selected) > 0 {
 			result[scope] = selected
 		}
 	}
 
 	return result
+}
+
+// reuseAssigned returns up to count candidates that are already in the assigned set,
+// excluding the author. These reviewers already review another scope, so crediting them
+// toward an overlapping scope avoids pulling in a brand-new reviewer for it.
+func reuseAssigned(candidates []string, count int, author string, assigned map[string]bool) []string {
+	reused := make([]string, 0, count)
+	for _, c := range candidates {
+		if len(reused) == count {
+			break
+		}
+		if c != author && assigned[c] {
+			reused = append(reused, c)
+		}
+	}
+	return reused
 }
 
 // selectN selects up to count reviewers from candidates, excluding the author and anyone
