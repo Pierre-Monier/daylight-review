@@ -1,5 +1,5 @@
 // ABOUTME: formats and parses the internal MR note that records processed runs
-// ABOUTME: note body is "daylight:processed " followed by JSON {sha, assignments}
+// ABOUTME: note body is "daylight:processed " followed by JSON {sha, assignments, ooo}
 package pipeline
 
 import (

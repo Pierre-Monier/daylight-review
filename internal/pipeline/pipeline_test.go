@@ -360,6 +360,33 @@ func TestDiffAndSelect_OOOReviewer_StickyAcrossScopes(t *testing.T) {
 	assert.Empty(t, unfilled)
 }
 
+func TestDiffAndSelect_OOOBackfill_DoesNotDoubleBookOtherScopeOwner(t *testing.T) {
+	sections := ownership.Parse("[A][1]\n/a/ @alice @bob @carol\n[B][1]\n/b/ @bob\n")
+	files := []string{"/a/main.go", "/b/main.go"}
+	previous := map[string][]string{"A": {"alice"}, "B": {"bob"}}
+
+	// Scope map iteration order is randomized by the Go runtime, so run enough times to
+	// surface the bug regardless of which scope DiffAndSelect happens to visit first.
+	for i := 0; i < 30; i++ {
+		got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, firstStrategy{}, noopPrintf)
+
+		assert.Equal(t, []string{"carol"}, got["A"], "A's replacement must not steal B's kept owner")
+		assert.Equal(t, []string{"bob"}, got["B"], "B must keep its stored reviewer")
+		assert.Empty(t, unfilled)
+	}
+}
+
+func TestDiffAndSelect_TwoOOOInScope_ReplacesEachOrUnfilled(t *testing.T) {
+	sections := ownership.Parse("[Backend][2]\n/src/ @alice @bob @carol\n")
+	files := []string{"/src/main.go"}
+	previous := map[string][]string{"Backend": {"alice", "bob"}}
+
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice", "bob"}, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"carol"}, got["Backend"])
+	assert.Equal(t, []Unfilled{{Scope: "Backend", Username: "bob"}}, unfilled)
+}
+
 func TestDiffAndSelect_OOOReviewer_NoReplacement_Unfilled(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
 	files := []string{"/src/main.go"}

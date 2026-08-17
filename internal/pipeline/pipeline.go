@@ -163,6 +163,20 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 	for u := range oooSet {
 		assigned[u] = true // out-of-office reviewers are never selected
 	}
+	// Seed every kept (non-OOO) reviewer of a still-matched scope into assigned before any
+	// backfill runs. Scope map iteration is random, so without this an OOO backfill in one
+	// scope could pick a reviewer another not-yet-visited scope is about to keep verbatim.
+	for scope := range currentPools {
+		prev, ok := previous[scope]
+		if !ok {
+			continue
+		}
+		for _, r := range prev {
+			if !oooSet[r] {
+				assigned[r] = true
+			}
+		}
+	}
 	var unfilled []Unfilled
 
 	printf("=== SCOPE DIFF ===")
