@@ -28,14 +28,16 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 
 	var prevSHA string
 	var prevAssignments map[string][]string
+	var prevOoo []string
 	// Notes are newest-first, so the first daylight note is the current state.
 	for _, note := range notes {
-		if sha, assignments, ok := ParseNote(note.Body); ok {
-			prevSHA, prevAssignments = sha, assignments
+		if sha, assignments, ooo, ok := ParseNote(note.Body); ok {
+			prevSHA, prevAssignments, prevOoo = sha, assignments, ooo
 			break
 		}
 	}
-	if prevSHA == cfg.CommitSHA {
+	ooo := unionOOO(prevOoo, requestedOOO(notes))
+	if prevSHA == cfg.CommitSHA && len(ooo) == len(prevOoo) {
 		log.Println("already processed this commit, skipping")
 		return nil
 	}
@@ -52,7 +54,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 	sections := ownership.Parse(content)
 
-	assignments := DiffAndSelect(files, sections, author, prevAssignments, strategy, log.Printf)
+	assignments, unfilled := DiffAndSelect(files, sections, author, prevAssignments, ooo, strategy, log.Printf)
 	newReviewers := Reviewers(assignments)
 	prevReviewers := Reviewers(prevAssignments)
 
@@ -71,8 +73,18 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 		}
 	}
 
-	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments), true); err != nil {
+	if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, FormatNote(cfg.CommitSHA, assignments, ooo), true); err != nil {
 		return fmt.Errorf("post note: %w", err)
+	}
+
+	for _, u := range unfilled {
+		body, confidential := oooWarningNote(u.Scope, u.Username)
+		if noteExists(notes, body) {
+			continue
+		}
+		if err := gl.PostNote(ctx, cfg.ProjectID, cfg.MRIID, body, confidential); err != nil {
+			log.Printf("warning: post out-of-office warning: %v", err)
+		}
 	}
 
 	if prevSHA == "" {
@@ -100,12 +112,21 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+// Unfilled names a scope left without a reviewer because an out-of-office reviewer
+// had no eligible replacement.
+type Unfilled struct {
+	Scope    string
+	Username string
+}
+
 // DiffAndSelect computes the new per-scope reviewer assignments. Scopes matched by the
 // changed files are diffed against the previously-stored assignments: a scope present in
-// both keeps its stored reviewers verbatim; a newly-matched scope gets freshly-selected
-// reviewers (count from the section, excluding the author and anyone already assigned);
-// a scope no longer matched is dropped. Emits per-step detail via printf.
-func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, strategy selection.SelectionStrategy, printf func(string, ...any)) map[string][]string {
+// both keeps its stored reviewers verbatim, except out-of-office reviewers are dropped and
+// each is replaced by a freshly-selected owner; a newly-matched scope gets freshly-selected
+// reviewers (count from the section, excluding the author, out-of-office users, and anyone
+// already assigned); a scope no longer matched is dropped. When an out-of-office reviewer
+// cannot be replaced, the scope is left short and the reviewer is returned in unfilled.
+func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, ooo []string, strategy selection.SelectionStrategy, printf func(string, ...any)) (map[string][]string, []Unfilled) {
 	printf("=== FILE MATCHING ===")
 	printf("author: %q (excluded from selection)", author)
 	printf("changed files (%d):", len(files))
@@ -132,18 +153,58 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 		sectionCount[s.Name] = s.RequiredCount
 	}
 
+	oooSet := make(map[string]bool, len(ooo))
+	for _, u := range ooo {
+		oooSet[u] = true
+	}
+
 	result := make(map[string][]string)
 	assigned := make(map[string]bool)
+	for u := range oooSet {
+		assigned[u] = true // out-of-office reviewers are never selected
+	}
+	// Seed every kept (non-OOO) reviewer of a still-matched scope into assigned before any
+	// backfill runs. Scope map iteration is random, so without this an OOO backfill in one
+	// scope could pick a reviewer another not-yet-visited scope is about to keep verbatim.
+	for scope := range currentPools {
+		prev, ok := previous[scope]
+		if !ok {
+			continue
+		}
+		for _, r := range prev {
+			if !oooSet[r] {
+				assigned[r] = true
+			}
+		}
+	}
+	var unfilled []Unfilled
 
 	printf("=== SCOPE DIFF ===")
 	for scope := range currentPools {
-		if prev, ok := previous[scope]; ok {
-			result[scope] = prev
-			for _, r := range prev {
-				assigned[r] = true
-			}
-			printf("[%s] kept: %s", scope, strings.Join(prev, ", "))
+		prev, ok := previous[scope]
+		if !ok {
+			continue
 		}
+		kept := make([]string, 0, len(prev))
+		for _, r := range prev {
+			if oooSet[r] {
+				printf("[%s] reviewer %s is out, selecting replacement", scope, r)
+				replacement := selectN(currentPools[scope], 1, author, assigned, strategy, printf)
+				if len(replacement) == 0 {
+					printf("[%s] no replacement available for %s", scope, r)
+					unfilled = append(unfilled, Unfilled{Scope: scope, Username: r})
+					continue
+				}
+				kept = append(kept, replacement[0])
+				continue
+			}
+			kept = append(kept, r)
+			assigned[r] = true
+		}
+		if len(kept) > 0 {
+			result[scope] = kept
+		}
+		printf("[%s] kept: %s", scope, strings.Join(kept, ", "))
 	}
 	for scope, prev := range previous {
 		if _, ok := currentPools[scope]; !ok {
@@ -164,7 +225,7 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 		}
 	}
 
-	return result
+	return result, unfilled
 }
 
 // selectN selects up to count reviewers from candidates, excluding the author and anyone
@@ -189,6 +250,16 @@ func selectN(candidates []string, count int, author string, assigned map[string]
 		printf("  round %d: selected %s", i+1, reviewer)
 	}
 	return selected
+}
+
+// noteExists reports whether a note with exactly the given body is already on the MR.
+func noteExists(notes []gitlab.Note, body string) bool {
+	for _, n := range notes {
+		if n.Body == body {
+			return true
+		}
+	}
+	return false
 }
 
 // Reviewers flattens a scope→reviewers map into a sorted, de-duplicated reviewer list.

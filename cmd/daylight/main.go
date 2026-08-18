@@ -16,7 +16,6 @@ import (
 	"github.com/daylight-review/daylight/internal/selection"
 )
 
-
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "check" {
 		runCheck(os.Args[2:])
@@ -105,7 +104,7 @@ func runCheck(args []string) {
 	sections := ownership.Parse(string(content))
 
 	printf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
-	assignments := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, selection.RandomStrategy{}, printf)
+	assignments, _ := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, nil, selection.RandomStrategy{}, printf)
 	reviewers := pipeline.Reviewers(assignments)
 
 	fmt.Println()

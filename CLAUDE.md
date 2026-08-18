@@ -66,6 +66,14 @@ next run it reads notes newest-first, parses the first daylight note as the prev
 This per-scope diffing is why the note stores a `section → reviewers` map rather than a flat
 list. When changing assignment behavior, preserve this stability invariant.
 
+A reviewer can be flagged out-of-office with an MR comment `daylight:ooo @user`. On the
+next run (push or job retry) Daylight reads the comment from the notes it already fetches,
+drops that reviewer from their scope, and backfills a replacement (excluding the author,
+out-of-office users, and already-assigned reviewers). The flagged set is stored in the
+processed note (`ooo`) and is sticky for the MR — a flagged user is never re-selected. A
+new OOO command overrides the same-SHA skip. If a scope has no available replacement it is
+left short and a one-time non-confidential warning note is posted.
+
 Known limitation, documented in code: `MRNotes` fetches only the first page (100 notes, no
 pagination), so on a very chatty MR the idempotency note could fall off page 1.
 
@@ -96,13 +104,6 @@ implemented code is only the "assignment" slice of a broader product.
 
 When acceptance criteria in the user stories or a spec conflict with what the code does, treat
 the code as current and the docs as intent — and flag the divergence.
-
-## Work in progress
-
-The `feature/feedback-note` branch is mid-TDD: `internal/pipeline/feedback_test.go` exists and
-fails because `internal/pipeline/feedback.go` (`feedbackNote()` + `feedbackURL`) is not written
-yet, and the one-time post is not yet wired into `pipeline.Run`. See
-`docs/superpowers/specs/2026-06-17-feedback-note-design.md` and the matching plan.
 
 ## Conventions
 
