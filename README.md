@@ -58,6 +58,37 @@ That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_
 | `DAYLIGHT_GITLAB_TOKEN` | ✓ | GitLab API token with `api` scope |
 | `DAYLIGHT_GITLAB_URL` | — | Override the GitLab instance URL (defaults to `CI_SERVER_URL`, then `https://gitlab.com`) |
 
+## Marking a reviewer out of office
+
+If an assigned reviewer is unavailable, anyone can hand their review to another owner of
+the same team by posting a comment on the merge request:
+
+```
+daylight:ooo @alice
+```
+
+- The comment must start with `daylight:ooo`, followed by the reviewer's GitLab username
+  (the `@` is optional). One reviewer per comment — post several comments to flag several
+  people.
+- Daylight only acts on a `merge_request_event` pipeline, so the reassignment happens the
+  **next time the job runs**: either on the next push, or immediately if you click **Retry**
+  on the Daylight CI job.
+
+On that run Daylight drops the flagged reviewer from their team and picks a replacement from
+the other owners of that team (excluding the MR author and anyone already assigned). Every
+other reviewer stays exactly where they were.
+
+A flagged reviewer stays out for the life of the MR — they are never re-selected, even if a
+new team starts owning the changed files. There is no "back in office" command; when someone
+returns, their replacement simply keeps the review.
+
+If no other owner of that team is available, the reviewer is dropped and Daylight posts a
+one-time comment asking for a manual assignment:
+
+```
+⚠️ @alice is out and no other owner of [Backend] is available — please assign manually.
+```
+
 ## Behaviour
 
 - **Draft MRs are skipped** — no API call is made, the job exits immediately.
@@ -65,6 +96,7 @@ That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_
 - **No owner** — if none of the changed files have an owner in `CODEOWNERS`, the job exits silently without assigning anyone.
 - **Author excluded** — the MR author is never selected as a reviewer.
 - **One reviewer per team** — if the same person is a candidate for multiple teams, they are assigned only once.
+- **Out-of-office reassignment** — a `daylight:ooo @user` comment reassigns that reviewer's team on the next run (see above).
 
 ## Self-hosted GitLab
 
