@@ -222,7 +222,7 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 		printf("[%s] new — pool: %s, need: %d", scope, strings.Join(candidates, ", "), count)
 		var selected []string
 		if reuseShared {
-			selected = reuseAssigned(candidates, count, author, assigned)
+			selected = reuseAssigned(candidates, count, author, assigned, oooSet)
 			for _, r := range selected {
 				printf("  reused already-assigned reviewer %s", r)
 			}
@@ -239,15 +239,17 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 }
 
 // reuseAssigned returns up to count candidates that are already in the assigned set,
-// excluding the author. These reviewers already review another scope, so crediting them
-// toward an overlapping scope avoids pulling in a brand-new reviewer for it.
-func reuseAssigned(candidates []string, count int, author string, assigned map[string]bool) []string {
+// excluding the author and out-of-office reviewers. These reviewers already review another
+// scope, so crediting them toward an overlapping scope avoids pulling in a brand-new
+// reviewer for it. Out-of-office reviewers sit in assigned only to block selection, so they
+// must never be reused.
+func reuseAssigned(candidates []string, count int, author string, assigned, ooo map[string]bool) []string {
 	reused := make([]string, 0, count)
 	for _, c := range candidates {
 		if len(reused) == count {
 			break
 		}
-		if c != author && assigned[c] {
+		if c != author && assigned[c] && !ooo[c] {
 			reused = append(reused, c)
 		}
 	}
