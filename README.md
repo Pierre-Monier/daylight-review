@@ -57,6 +57,7 @@ That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_
 |---|---|---|
 | `DAYLIGHT_GITLAB_TOKEN` | ✓ | GitLab API token with `api` scope |
 | `DAYLIGHT_GITLAB_URL` | — | Override the GitLab instance URL (defaults to `CI_SERVER_URL`, then `https://gitlab.com`) |
+| `DAYLIGHT_REUSE_SHARED_REVIEWERS` | — | Set to `true` to prefer a reviewer already assigned to the MR when they also own another changed team, instead of pulling in a fresh one (see [Reusing shared reviewers](#reusing-shared-reviewers)) |
 
 ## Marking a reviewer out of office
 
@@ -89,6 +90,41 @@ one-time comment asking for a manual assignment:
 ⚠️ @alice is out and no other owner of [Backend] is available — please assign manually.
 ```
 
+## Reusing shared reviewers
+
+By default, when a merge request touches several teams, Daylight picks a **different**
+reviewer for each one — spreading the review load across as many people as possible.
+
+Some teams would rather concentrate a multi-team MR on the fewest reviewers. Set
+`DAYLIGHT_REUSE_SHARED_REVIEWERS=true` and, when a reviewer already assigned to the MR also
+owns another changed team, Daylight credits them toward that team instead of adding a new
+name:
+
+```yaml
+daylight-assign:
+  image: daylightreview/daylight:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    DAYLIGHT_REUSE_SHARED_REVIEWERS: "true"
+  script:
+    - daylight
+```
+
+- Only exact string `"true"` enables it; any other value (or unset) keeps the default
+  load-spreading behaviour.
+- A team still fills to its required reviewer count — if there aren't enough shared owners
+  to cover it, Daylight tops up with fresh reviewers.
+- It never overrides existing assignments: reviewers already chosen on a previous run stay
+  put, and a reviewer flagged out of office is never reused.
+
+You can preview the effect locally without touching GitLab using the `check` subcommand's
+`-reuse-shared` flag:
+
+```bash
+daylight check -reuse-shared -codeowners CODEOWNERS -author alice src/main.go web/app.js
+```
+
 ## Behaviour
 
 - **Draft MRs are skipped** — no API call is made, the job exits immediately.
@@ -97,6 +133,7 @@ one-time comment asking for a manual assignment:
 - **Author excluded** — the MR author is never selected as a reviewer.
 - **One reviewer per team** — if the same person is a candidate for multiple teams, they are assigned only once.
 - **Out-of-office reassignment** — a `daylight:ooo @user` comment reassigns that reviewer's team on the next run (see above).
+- **Reusing shared reviewers** — with `DAYLIGHT_REUSE_SHARED_REVIEWERS=true`, a multi-team MR prefers reviewers already assigned to it over pulling in fresh ones (see above).
 
 ## Self-hosted GitLab
 
