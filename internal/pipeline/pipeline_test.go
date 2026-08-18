@@ -271,7 +271,7 @@ func TestDiffAndSelect_PresentScope_KeptVerbatim(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice", "bob"}}
 
-	got, _ := DiffAndSelect(files, sections, "", previous, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice", "bob"}, got["Backend"])
 }
@@ -281,7 +281,7 @@ func TestDiffAndSelect_NewScopeAdded_OnlyNewSelected(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, _ := DiffAndSelect(files, sections, "", previous, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false,firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"carol"}, got["Frontend"])
@@ -292,7 +292,7 @@ func TestDiffAndSelect_ScopeRemoved_Dropped(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}, "Frontend": {"carol"}}
 
-	got, _ := DiffAndSelect(files, sections, "", previous, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, map[string][]string{"Backend": {"alice"}}, got)
 }
@@ -302,7 +302,7 @@ func TestDiffAndSelect_AllScopesRemoved_Empty(t *testing.T) {
 	files := []string{"/docs/readme.md"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, _ := DiffAndSelect(files, sections, "", previous, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Empty(t, got)
 }
@@ -312,7 +312,7 @@ func TestDiffAndSelect_NewScope_ExcludesAlreadyAssigned(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, _ := DiffAndSelect(files, sections, "", previous, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"dave"}, got["Frontend"])
@@ -322,7 +322,7 @@ func TestDiffAndSelect_NewScope_ExcludesAuthor(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n")
 	files := []string{"/src/main.go"}
 
-	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"bob"}, got["Backend"])
 }
@@ -331,7 +331,7 @@ func TestDiffAndSelect_NewScope_PoolExhausted_NoReviewer(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
 	files := []string{"/src/main.go"}
 
-	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, false, firstStrategy{}, noopPrintf)
 
 	_, has := got["Backend"]
 	assert.False(t, has)
@@ -342,7 +342,7 @@ func TestDiffAndSelect_OOOReviewer_Replaced(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"bob"}, got["Backend"])
 	assert.Empty(t, unfilled)
@@ -353,7 +353,7 @@ func TestDiffAndSelect_OOOReviewer_StickyAcrossScopes(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"bob"}, got["Backend"])
 	assert.Equal(t, []string{"dave"}, got["Frontend"])
@@ -368,7 +368,7 @@ func TestDiffAndSelect_OOOBackfill_DoesNotDoubleBookOtherScopeOwner(t *testing.T
 	// Scope map iteration order is randomized by the Go runtime, so run enough times to
 	// surface the bug regardless of which scope DiffAndSelect happens to visit first.
 	for i := 0; i < 30; i++ {
-		got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, firstStrategy{}, noopPrintf)
+		got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
 		assert.Equal(t, []string{"carol"}, got["A"], "A's replacement must not steal B's kept owner")
 		assert.Equal(t, []string{"bob"}, got["B"], "B must keep its stored reviewer")
@@ -381,7 +381,7 @@ func TestDiffAndSelect_TwoOOOInScope_ReplacesEachOrUnfilled(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice", "bob"}}
 
-	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice", "bob"}, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice", "bob"}, true, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"carol"}, got["Backend"])
 	assert.Equal(t, []Unfilled{{Scope: "Backend", Username: "bob"}}, unfilled)
@@ -392,7 +392,7 @@ func TestDiffAndSelect_OOOReviewer_NoReplacement_Unfilled(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
 	assert.NotContains(t, got, "Backend")
 	assert.Equal(t, []Unfilled{{Scope: "Backend", Username: "alice"}}, unfilled)

@@ -57,6 +57,73 @@ That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_
 |---|---|---|
 | `DAYLIGHT_GITLAB_TOKEN` | ✓ | GitLab API token with `api` scope |
 | `DAYLIGHT_GITLAB_URL` | — | Override the GitLab instance URL (defaults to `CI_SERVER_URL`, then `https://gitlab.com`) |
+| `DAYLIGHT_REUSE_SHARED_REVIEWERS` | — | Set to `true` to prefer a reviewer already assigned to the MR when they also own another changed team, instead of pulling in a fresh one (see [Reusing shared reviewers](#reusing-shared-reviewers)) |
+
+## Marking a reviewer out of office
+
+If an assigned reviewer is unavailable, anyone can hand their review to another owner of
+the same team by posting a comment on the merge request:
+
+```
+daylight:ooo @alice
+```
+
+- The comment must start with `daylight:ooo`, followed by the reviewer's GitLab username
+  (the `@` is optional). One reviewer per comment — post several comments to flag several
+  people.
+- Daylight only acts on a `merge_request_event` pipeline, so the reassignment happens the
+  **next time the job runs**: either on the next push, or immediately if you click **Retry**
+  on the Daylight CI job.
+
+On that run Daylight drops the flagged reviewer from their team and picks a replacement from
+the other owners of that team (excluding the MR author and anyone already assigned). Every
+other reviewer stays exactly where they were.
+
+A flagged reviewer stays out for the life of the MR — they are never re-selected, even if a
+new team starts owning the changed files. There is no "back in office" command; when someone
+returns, their replacement simply keeps the review.
+
+If no other owner of that team is available, the reviewer is dropped and Daylight posts a
+one-time comment asking for a manual assignment:
+
+```
+⚠️ @alice is out and no other owner of [Backend] is available — please assign manually.
+```
+
+## Reusing shared reviewers
+
+By default, when a merge request touches several teams, Daylight picks a **different**
+reviewer for each one — spreading the review load across as many people as possible.
+
+Some teams would rather concentrate a multi-team MR on the fewest reviewers. Set
+`DAYLIGHT_REUSE_SHARED_REVIEWERS=true` and, when a reviewer already assigned to the MR also
+owns another changed team, Daylight credits them toward that team instead of adding a new
+name:
+
+```yaml
+daylight-assign:
+  image: daylightreview/daylight:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    DAYLIGHT_REUSE_SHARED_REVIEWERS: "true"
+  script:
+    - daylight
+```
+
+- Only exact string `"true"` enables it; any other value (or unset) keeps the default
+  load-spreading behaviour.
+- A team still fills to its required reviewer count — if there aren't enough shared owners
+  to cover it, Daylight tops up with fresh reviewers.
+- It never overrides existing assignments: reviewers already chosen on a previous run stay
+  put, and a reviewer flagged out of office is never reused.
+
+You can preview the effect locally without touching GitLab using the `check` subcommand's
+`-reuse-shared` flag:
+
+```bash
+daylight check -reuse-shared -codeowners CODEOWNERS -author alice src/main.go web/app.js
+```
 
 ## Behaviour
 
@@ -65,6 +132,8 @@ That's it. Daylight reads all other required values (`CI_PROJECT_ID`, `CI_MERGE_
 - **No owner** — if none of the changed files have an owner in `CODEOWNERS`, the job exits silently without assigning anyone.
 - **Author excluded** — the MR author is never selected as a reviewer.
 - **One reviewer per team** — if the same person is a candidate for multiple teams, they are assigned only once.
+- **Out-of-office reassignment** — a `daylight:ooo @user` comment reassigns that reviewer's team on the next run (see above).
+- **Reusing shared reviewers** — with `DAYLIGHT_REUSE_SHARED_REVIEWERS=true`, a multi-team MR prefers reviewers already assigned to it over pulling in fresh ones (see above).
 
 ## Self-hosted GitLab
 

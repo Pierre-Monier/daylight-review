@@ -54,7 +54,7 @@ func Run(ctx context.Context, cfg config.Config, gl gitlab.GitLabClient, strateg
 	}
 	sections := ownership.Parse(content)
 
-	assignments, unfilled := DiffAndSelect(files, sections, author, prevAssignments, ooo, strategy, log.Printf)
+	assignments, unfilled := DiffAndSelect(files, sections, author, prevAssignments, ooo, cfg.ReuseSharedReviewers, strategy, log.Printf)
 	newReviewers := Reviewers(assignments)
 	prevReviewers := Reviewers(prevAssignments)
 
@@ -126,7 +126,7 @@ type Unfilled struct {
 // reviewers (count from the section, excluding the author, out-of-office users, and anyone
 // already assigned); a scope no longer matched is dropped. When an out-of-office reviewer
 // cannot be replaced, the scope is left short and the reviewer is returned in unfilled.
-func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, ooo []string, strategy selection.SelectionStrategy, printf func(string, ...any)) (map[string][]string, []Unfilled) {
+func DiffAndSelect(files []string, sections []ownership.Section, author string, previous map[string][]string, ooo []string, reuseShared bool, strategy selection.SelectionStrategy, printf func(string, ...any)) (map[string][]string, []Unfilled) {
 	printf("=== FILE MATCHING ===")
 	printf("author: %q (excluded from selection)", author)
 	printf("changed files (%d):", len(files))
@@ -220,12 +220,40 @@ func DiffAndSelect(files []string, sections []ownership.Section, author string, 
 			count = 1
 		}
 		printf("[%s] new — pool: %s, need: %d", scope, strings.Join(candidates, ", "), count)
-		if selected := selectN(candidates, count, author, assigned, strategy, printf); len(selected) > 0 {
+		var selected []string
+		if reuseShared {
+			selected = reuseAssigned(candidates, count, author, assigned, oooSet)
+			for _, r := range selected {
+				printf("  reused already-assigned reviewer %s", r)
+			}
+		}
+		if len(selected) < count {
+			selected = append(selected, selectN(candidates, count-len(selected), author, assigned, strategy, printf)...)
+		}
+		if len(selected) > 0 {
 			result[scope] = selected
 		}
 	}
 
 	return result, unfilled
+}
+
+// reuseAssigned returns up to count candidates that are already in the assigned set,
+// excluding the author and out-of-office reviewers. These reviewers already review another
+// scope, so crediting them toward an overlapping scope avoids pulling in a brand-new
+// reviewer for it. Out-of-office reviewers sit in assigned only to block selection, so they
+// must never be reused.
+func reuseAssigned(candidates []string, count int, author string, assigned, ooo map[string]bool) []string {
+	reused := make([]string, 0, count)
+	for _, c := range candidates {
+		if len(reused) == count {
+			break
+		}
+		if c != author && assigned[c] && !ooo[c] {
+			reused = append(reused, c)
+		}
+	}
+	return reused
 }
 
 // selectN selects up to count reviewers from candidates, excluding the author and anyone

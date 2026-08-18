@@ -110,6 +110,38 @@ func TestLoad_URLFallbackToGitLabCom(t *testing.T) {
 	assert.Equal(t, "https://gitlab.com", cfg.GitLabURL)
 }
 
+func TestLoad_ReuseSharedReviewersTrue(t *testing.T) {
+	vars := requiredVars()
+	vars["DAYLIGHT_REUSE_SHARED_REVIEWERS"] = "true"
+	defer withEnv(vars)()
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.True(t, cfg.ReuseSharedReviewers)
+}
+
+func TestLoad_ReuseSharedReviewersDefaultsFalse(t *testing.T) {
+	defer withEnv(requiredVars())()
+	os.Unsetenv("DAYLIGHT_REUSE_SHARED_REVIEWERS")
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.False(t, cfg.ReuseSharedReviewers)
+}
+
+func TestLoad_ReuseSharedReviewersNonTrueIsFalse(t *testing.T) {
+	vars := requiredVars()
+	vars["DAYLIGHT_REUSE_SHARED_REVIEWERS"] = "1"
+	defer withEnv(vars)()
+
+	cfg, err := Load()
+
+	require.NoError(t, err)
+	assert.False(t, cfg.ReuseSharedReviewers)
+}
+
 func TestLoad_DAYLIGHTURLOverridesCIServerURL(t *testing.T) {
 	vars := requiredVars()
 	vars["CI_SERVER_URL"] = "https://gitlab.example.com"
