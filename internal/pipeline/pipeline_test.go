@@ -55,7 +55,7 @@ func TestRun_Draft_ExitsEarly(t *testing.T) {
 func TestRun_AlreadyProcessedBySHA_ExitsEarly(t *testing.T) {
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 	}
 
@@ -112,7 +112,7 @@ func TestRun_HappyPath_AssignsReviewerAndPostsNote(t *testing.T) {
 	assert.Contains(t, []string{"alice", "bob"}, assignedReviewers[0])
 	body, ok := findProcessedNote(posted)
 	require.True(t, ok, "a processed note must be posted")
-	sha, postedAssignments, ok := ParseNote(body)
+	sha, postedAssignments, _, ok := ParseNote(body)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Len(t, postedAssignments["Backend"], 1)
@@ -179,7 +179,7 @@ func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
 	var postedNote string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go"}, "author", nil
@@ -201,7 +201,7 @@ func TestRun_ScopesUnchanged_DoesNotReassign(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, setCalled, "reviewers unchanged, SetReviewers must not be called")
-	sha, postedAssignments, ok := ParseNote(postedNote)
+	sha, postedAssignments, _, ok := ParseNote(postedNote)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
@@ -212,7 +212,7 @@ func TestRun_AllScopesRemoved_ClearsReviewers(t *testing.T) {
 	var assigned []string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/docs/readme.md"}, "author", nil
@@ -242,7 +242,7 @@ type recordedNote struct {
 
 func findProcessedNote(notes []recordedNote) (string, bool) {
 	for _, n := range notes {
-		if _, _, ok := ParseNote(n.body); ok {
+		if _, _, _, ok := ParseNote(n.body); ok {
 			return n.body, true
 		}
 	}
@@ -271,7 +271,7 @@ func TestDiffAndSelect_PresentScope_KeptVerbatim(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice", "bob"}}
 
-	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice", "bob"}, got["Backend"])
 }
@@ -281,7 +281,7 @@ func TestDiffAndSelect_NewScopeAdded_OnlyNewSelected(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false,firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"carol"}, got["Frontend"])
@@ -292,7 +292,7 @@ func TestDiffAndSelect_ScopeRemoved_Dropped(t *testing.T) {
 	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}, "Frontend": {"carol"}}
 
-	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, map[string][]string{"Backend": {"alice"}}, got)
 }
@@ -302,7 +302,7 @@ func TestDiffAndSelect_AllScopesRemoved_Empty(t *testing.T) {
 	files := []string{"/docs/readme.md"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Empty(t, got)
 }
@@ -312,7 +312,7 @@ func TestDiffAndSelect_NewScope_ExcludesAlreadyAssigned(t *testing.T) {
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "", previous, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"alice"}, got["Backend"])
 	assert.Equal(t, []string{"dave"}, got["Frontend"])
@@ -322,7 +322,7 @@ func TestDiffAndSelect_NewScope_ExcludesAuthor(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n")
 	files := []string{"/src/main.go"}
 
-	got := DiffAndSelect(files, sections, "alice", nil, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, false, firstStrategy{}, noopPrintf)
 
 	assert.Equal(t, []string{"bob"}, got["Backend"])
 }
@@ -331,45 +331,71 @@ func TestDiffAndSelect_NewScope_PoolExhausted_NoReviewer(t *testing.T) {
 	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
 	files := []string{"/src/main.go"}
 
-	got := DiffAndSelect(files, sections, "alice", nil, false, firstStrategy{}, noopPrintf)
+	got, _ := DiffAndSelect(files, sections, "alice", nil, nil, false, firstStrategy{}, noopPrintf)
 
 	_, has := got["Backend"]
 	assert.False(t, has)
 }
 
-func TestDiffAndSelect_ReuseShared_SharedReviewerReusedForNewScope(t *testing.T) {
-	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Core][1]\n/core/ @alice @dave\n")
-	files := []string{"/src/main.go", "/core/x.go"}
+func TestDiffAndSelect_OOOReviewer_Replaced(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n")
+	files := []string{"/src/main.go"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
-	assert.Equal(t, []string{"alice"}, got["Backend"])
-	assert.Equal(t, []string{"alice"}, got["Core"])
+	assert.Equal(t, []string{"bob"}, got["Backend"])
+	assert.Empty(t, unfilled)
 }
 
-func TestDiffAndSelect_ReuseShared_TopsUpToRequiredCount(t *testing.T) {
-	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Core][2]\n/core/ @alice @dave @erin\n")
-	files := []string{"/src/main.go", "/core/x.go"}
-	previous := map[string][]string{"Backend": {"alice"}}
-
-	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
-
-	assert.Equal(t, []string{"alice"}, got["Backend"])
-	require.Len(t, got["Core"], 2)
-	assert.Equal(t, "alice", got["Core"][0], "reused reviewer comes first")
-	assert.Contains(t, []string{"dave", "erin"}, got["Core"][1], "count topped up with a fresh reviewer")
-}
-
-func TestDiffAndSelect_ReuseShared_NoSharedCandidateSelectsFresh(t *testing.T) {
-	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n[Frontend][1]\n/web/ @carol\n")
+func TestDiffAndSelect_OOOReviewer_StickyAcrossScopes(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice @bob\n[Frontend][1]\n/web/ @alice @dave\n")
 	files := []string{"/src/main.go", "/web/app.js"}
 	previous := map[string][]string{"Backend": {"alice"}}
 
-	got := DiffAndSelect(files, sections, "", previous, true, firstStrategy{}, noopPrintf)
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
 
-	assert.Equal(t, []string{"alice"}, got["Backend"])
-	assert.Equal(t, []string{"carol"}, got["Frontend"])
+	assert.Equal(t, []string{"bob"}, got["Backend"])
+	assert.Equal(t, []string{"dave"}, got["Frontend"])
+	assert.Empty(t, unfilled)
+}
+
+func TestDiffAndSelect_OOOBackfill_DoesNotDoubleBookOtherScopeOwner(t *testing.T) {
+	sections := ownership.Parse("[A][1]\n/a/ @alice @bob @carol\n[B][1]\n/b/ @bob\n")
+	files := []string{"/a/main.go", "/b/main.go"}
+	previous := map[string][]string{"A": {"alice"}, "B": {"bob"}}
+
+	// Scope map iteration order is randomized by the Go runtime, so run enough times to
+	// surface the bug regardless of which scope DiffAndSelect happens to visit first.
+	for i := 0; i < 30; i++ {
+		got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
+
+		assert.Equal(t, []string{"carol"}, got["A"], "A's replacement must not steal B's kept owner")
+		assert.Equal(t, []string{"bob"}, got["B"], "B must keep its stored reviewer")
+		assert.Empty(t, unfilled)
+	}
+}
+
+func TestDiffAndSelect_TwoOOOInScope_ReplacesEachOrUnfilled(t *testing.T) {
+	sections := ownership.Parse("[Backend][2]\n/src/ @alice @bob @carol\n")
+	files := []string{"/src/main.go"}
+	previous := map[string][]string{"Backend": {"alice", "bob"}}
+
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice", "bob"}, true, firstStrategy{}, noopPrintf)
+
+	assert.Equal(t, []string{"carol"}, got["Backend"])
+	assert.Equal(t, []Unfilled{{Scope: "Backend", Username: "bob"}}, unfilled)
+}
+
+func TestDiffAndSelect_OOOReviewer_NoReplacement_Unfilled(t *testing.T) {
+	sections := ownership.Parse("[Backend][1]\n/src/ @alice\n")
+	files := []string{"/src/main.go"}
+	previous := map[string][]string{"Backend": {"alice"}}
+
+	got, unfilled := DiffAndSelect(files, sections, "", previous, []string{"alice"}, true, firstStrategy{}, noopPrintf)
+
+	assert.NotContains(t, got, "Backend")
+	assert.Equal(t, []Unfilled{{Scope: "Backend", Username: "alice"}}, unfilled)
 }
 
 func TestReviewers_SortedDeduped(t *testing.T) {
@@ -383,7 +409,7 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 	var postedNote string
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go", "/web/app.js"}, "author", nil
@@ -405,7 +431,7 @@ func TestRun_NewScopeAdded_KeepsExistingAddsNew(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice", "carol"}, assigned)
-	sha, postedAssignments, ok := ParseNote(postedNote)
+	sha, postedAssignments, _, ok := ParseNote(postedNote)
 	assert.True(t, ok)
 	assert.Equal(t, "sha1", sha)
 	assert.Equal(t, []string{"alice"}, postedAssignments["Backend"])
@@ -442,7 +468,7 @@ func TestRun_NotFirstRun_NoFeedbackNote(t *testing.T) {
 	var posted []recordedNote
 	cl := &mockClient{
 		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
-			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}})}}, nil
+			return []gitlab.Note{{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)}}, nil
 		},
 		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
 			return []string{"/src/main.go"}, "author", nil
@@ -490,4 +516,134 @@ func TestRun_FeedbackNoteError_RunStillSucceeds(t *testing.T) {
 	err := Run(context.Background(), baseCfg(), cl, selection.RandomStrategy{})
 
 	require.NoError(t, err)
+}
+
+func TestRun_OOOCommand_SameSHA_Reassigns(t *testing.T) {
+	var assignedReviewers []string
+	var posted []recordedNote
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, u []string) error {
+			assignedReviewers = u
+			return nil
+		},
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bob"}, assignedReviewers)
+	body, ok := findProcessedNote(posted)
+	require.True(t, ok)
+	_, postedAssignments, postedOoo, ok := ParseNote(body)
+	require.True(t, ok)
+	assert.Equal(t, []string{"bob"}, postedAssignments["Backend"])
+	assert.Equal(t, []string{"alice"}, postedOoo)
+}
+
+func TestRun_OOOAlreadyRecorded_SameSHA_Skips(t *testing.T) {
+	setCalled := false
+	postCalled := false
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"bob"}}, []string{"alice"})},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice @bob\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error {
+			setCalled = true
+			return nil
+		},
+		postNote: func(_ context.Context, _, _, _ string, _ bool) error {
+			postCalled = true
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.False(t, setCalled, "OOO already recorded at this SHA, must skip")
+	assert.False(t, postCalled, "must not post a new note when skipping")
+}
+
+func TestRun_OOONoReplacement_PostsWarningOnce(t *testing.T) {
+	var posted []recordedNote
+	warningBody, _ := oooWarningNote("Backend", "alice")
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("sha1", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.Contains(t, posted, recordedNote{warningBody, false})
+}
+
+func TestRun_OOOWarningAlreadyPosted_NotReposted(t *testing.T) {
+	var posted []recordedNote
+	warningBody, _ := oooWarningNote("Backend", "alice")
+	cl := &mockClient{
+		mrNotes: func(_ context.Context, _, _ string) ([]gitlab.Note, error) {
+			return []gitlab.Note{
+				{Body: FormatNote("oldsha", map[string][]string{"Backend": {"alice"}}, nil)},
+				{Body: "daylight:ooo @alice"},
+				{Body: warningBody},
+			}, nil
+		},
+		mrChanges: func(_ context.Context, _, _ string) ([]string, string, error) {
+			return []string{"/src/main.go"}, "author", nil
+		},
+		codeownersContent: func(_ context.Context, _, _ string) (string, error) {
+			return "[Backend][1]\n/src/ @alice\n", nil
+		},
+		setReviewers: func(_ context.Context, _, _ string, _ []string) error { return nil },
+		postNote: func(_ context.Context, _, _, b string, c bool) error {
+			posted = append(posted, recordedNote{b, c})
+			return nil
+		},
+	}
+
+	err := Run(context.Background(), baseCfg(), cl, firstStrategy{})
+
+	require.NoError(t, err)
+	assert.NotContains(t, posted, recordedNote{warningBody, false})
 }

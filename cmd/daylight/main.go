@@ -110,7 +110,7 @@ func runCheck(args []string) {
 	sections := ownership.Parse(string(content))
 
 	printf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
-	assignments := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, *reuseShared, selection.RandomStrategy{}, printf)
+	assignments, _ := pipeline.DiffAndSelect(changedFiles, sections, *author, nil, nil, *reuseShared, selection.RandomStrategy{}, printf)
 	reviewers := pipeline.Reviewers(assignments)
 
 	fmt.Println()
